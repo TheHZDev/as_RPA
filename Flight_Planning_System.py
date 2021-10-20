@@ -208,20 +208,67 @@ class Flight_Planning_Sub_System:
                     t_name = root.contents[0].contents[0].attrs.get('name')
                     second_post_data[t_name] = ''
                     return
+                if root.attrs.get('name', '') == 'button-submit':  # 提取特定文字
+                    second_post_data['button-submit'] = root.attrs.get('value')
+                    return
+                if root.attrs.get('name', '') == 'segmentSettings:0:originTerminal':
+                    # 出发航站楼
+                    for t_unit in root.children:
+                        if t_unit.attrs.get('selected', '') == 'selected':
+                            second_post_data['segmentSettings:0:originTerminal'] = t_unit.attrs.get('value')
+                            return
+                if root.attrs.get('name', '') == 'segmentSettings:0:destinationTerminal':
+                    # 到达航站楼
+                    for t_unit in root.children:
+                        if t_unit.attrs.get('selected', '') == 'selected':
+                            second_post_data['segmentSettings:0:destinationTerminal'] = t_unit.attrs.get('value')
+                            return
             finally:
                 for t_unit in root.children:
-                    if len(second_post_data) >= 1:
+                    if len(second_post_data) >= 4:
                         return
                     if isinstance(t_unit, bs4.element.Tag):
                         Recursion_GetSpecialID_B(t_unit)
 
         for unit in BeautifulSoup(self.DeleteALLChar(WeekPlanPage.text), 'html5lib'):
-            if len(second_post_data) >= 1:
+            if len(second_post_data) >= 4:
                 break
             if isinstance(unit, bs4.element.Tag):
                 Recursion_GetSpecialID_B(unit)
         # 获取了周计划排班页面的特殊ID
-        # TODO: 根据周计划变量制作排班规划
+        try:
+            t_num = 0
+            for boolVar in WeekPlan:
+                if boolVar:
+                    second_post_data['days:daySelection:%d:ticked' % t_num] = 'on'
+                else:
+                    second_post_data['days:daySelection:%d:ticked' % t_num] = 'off'
+                t_num += 1
+        except:
+            # 如果出现错误，直接套用已经做好的排程
+            second_post_data.update({'days:daySelection:0:ticked': 'on', 'days:daySelection:1:ticked': 'on',
+                                     'days:daySelection:2:ticked': 'on', 'days:daySelection:3:ticked': 'on',
+                                     'days:daySelection:4:ticked': 'on', 'days:daySelection:5:ticked': 'on',
+                                     'days:daySelection:6:ticked': 'on'})
+        second_post_data.update({'segmentSettings:0:newDeparture:hours': str(DepartHour),
+                                 'segmentSettings:0:newDeparture:minutes': str(DepartMinute),
+                                 'segmentsContainer:segments:0:departure-offsets:0:departureOffset': '',
+                                 'segmentsContainer:segments:0:departure-offsets:1:departureOffset': '',
+                                 'segmentsContainer:segments:0:departure-offsets:2:departureOffset': '',
+                                 'segmentsContainer:segments:0:departure-offsets:3:departureOffset': '',
+                                 'segmentsContainer:segments:0:departure-offsets:4:departureOffset': '',
+                                 'segmentsContainer:segments:0:departure-offsets:5:departureOffset': '',
+                                 'segmentsContainer:segments:0:departure-offsets:6:departureOffset': '',
+                                 'segmentsContainer:segments:0:speed-overrides:0:speedOverride': '',
+                                 'segmentsContainer:segments:0:speed-overrides:1:speedOverride': '',
+                                 'segmentsContainer:segments:0:speed-overrides:2:speedOverride': '',
+                                 'segmentsContainer:segments:0:speed-overrides:3:speedOverride': '',
+                                 'segmentsContainer:segments:0:speed-overrides:4:speedOverride': '',
+                                 'segmentsContainer:segments:0:speed-overrides:5:speedOverride': '',
+                                 'segmentsContainer:segments:0:speed-overrides:6:speedOverride': ''})
+        debug_var = self.logonSession.post(current_random + t_url, data=second_post_data)
+        # 建立了一条新航线
+        # print(debug_var.text)
 
     # 辅助函数定义区
     @staticmethod
