@@ -5,6 +5,9 @@ import bs4.element
 from bs4 import BeautifulSoup
 from requests import Session
 
+local_Network_Debug = True
+local_Network_Debug = not local_Network_Debug
+
 
 class Flight_Planning_Sub_System:
     # logonSession = None
@@ -13,24 +16,26 @@ class Flight_Planning_Sub_System:
     cache_AirportInfo = {}
     cache_ServiceInfo = {}
 
-    def __init__(self, logonSession: Session, ServerName: str):
+    def __init__(self, logonSession: Session, ServerName: str, callback_raiseException=None):
+        """
+        航班计划管理子系统\n
+        :param logonSession:
+        :param ServerName:
+        :param callback_raiseException:
+        """
         self.logonSession = logonSession
         from LoginAirlineSim import getBaseURL
         self.baseURL = getBaseURL(ServerName)
+        self.logonSession.headers['Origin'] = self.baseURL
         # 一些初始化
-        FirstSearch = self.SearchFleets()
-        if len(FirstSearch) == 0:
-            raise Exception('没有可以进行正常排班的机队！')
-        self.SearchSubCompany()
-        for one_url in FirstSearch.keys():
-            self.BuildAirlineInfoCache(one_url)
-            break
+        self.SearchInfoIntelligently()
 
     def SearchFleets(self) -> dict:
         # 搜索需要进行排班的航机，已经在执行飞行任务的（绿色）、已排班但未执行的（黄色）、航班出现了问题的（红色）将会被跳过
         target_url = self.baseURL + '/app/fleets'
         fleetsInfo = {}
-        FleetsPage = BeautifulSoup(self.DeleteALLChar(self.logonSession.get(target_url).text), 'html5lib')
+        FleetsPage = BeautifulSoup(
+            self.DeleteALLChar(self.logonSession.get(target_url, verify=local_Network_Debug).text), 'html5lib')
 
         def Recursion_GetFleetsInfo(root: bs4.element.Tag):
             if root.attrs.get('title', '') == 'Flight Planning' and root.attrs.get('class', '') == ['btn',
@@ -49,17 +54,22 @@ class Flight_Planning_Sub_System:
         for unit_1 in FleetsPage.children:
             if isinstance(unit_1, bs4.element.Tag):
                 Recursion_GetFleetsInfo(unit_1)
+        if len(self.cache_AirportInfo) == 0 or len(self.cache_ServiceInfo) == 0:
+            for unit_1 in fleetsInfo.keys():
+                self.BuildAirlineInfoCache(unit_1)
+                break
         return fleetsInfo
 
     def SearchSubCompany(self) -> dict:
         # 列出全部子公司列表，并建立缓存
         if len(self.cache_SubCompany) > 0:
             return self.cache_SubCompany
-        MainPage = BeautifulSoup(self.DeleteALLChar(self.logonSession.get(self.baseURL).text), 'html5lib')
+        MainPage = BeautifulSoup(
+            self.DeleteALLChar(self.logonSession.get(self.baseURL, verify=local_Network_Debug).text), 'html5lib')
 
         def Recursion_GetCompanyInfo(root: bs4.element.Tag):
-            if root.attrs.get('href', '').startswith('./enterprise/dashboard?select='):
-                id_sub_company = root.attrs.get('href').replace('./enterprise/dashboard?select=', '')
+            if root.attrs.get('href', '').startswith('../../app/enterprise/dashboard?select='):
+                id_sub_company = root.attrs.get('href').replace('../../app/enterprise/dashboard?select=', '')
                 self.cache_SubCompany[root.contents[0].getText()] = id_sub_company
                 return
             for unit in root.children:
@@ -79,19 +89,21 @@ class Flight_Planning_Sub_System:
         # 第一种方法，进行前缀匹配
         for cookie_name in self.logonSession.cookies.keys():
             if cookie_name.startswith('airlinesim-selectedEnterpriseId-'):
-                self.logonSession.cookies[cookie_name] = self.cache_SubCompany.get(CompanyName)
+                self.logonSession.cookies.set(cookie_name, None)
+                self.logonSession.cookies.set(cookie_name, self.cache_SubCompany.get(CompanyName))
                 flag_success = True
                 break
         # 第二种方法，直接构造前缀Cookie
         if not flag_success:
             cookie_name = 'airlinesim-selectedEnterpriseId-' + urlparse(self.baseURL).netloc.split('.')[0]
-            self.logonSession.cookies[cookie_name] = self.cache_SubCompany.get(CompanyName)
+            self.logonSession.cookies.set(cookie_name, self.cache_SubCompany.get(CompanyName))
         return True
 
     # 实际操作部分
     def BuildAirlineInfoCache(self, AirplaneURL: str):
         # 进入排程管理界面，获取有关机队的机场信息、服务信息，经过对比，这些信息似乎是静态的
-        FleetsPage = BeautifulSoup(self.DeleteALLChar(self.logonSession.get(AirplaneURL).text), 'html5lib')
+        FleetsPage = BeautifulSoup(
+            self.DeleteALLChar(self.logonSession.get(AirplaneURL, verify=local_Network_Debug).text), 'html5lib')
 
         def Recursion_GetBasicInfo(root: bs4.element.Tag):
             if root.name == 'select':
@@ -136,7 +148,7 @@ class Flight_Planning_Sub_System:
                 DstAirport in self.cache_AirportInfo.keys() and 0 <= DepartHour <= 23 and 0 <= DepartMinute <= 59 and
                 Service in self.cache_ServiceInfo.keys() and 50 <= Price <= 200):
             raise Exception('请检查设置参数是否正确！参数异常，已拒绝。')
-        AirlineManagerPage = self.logonSession.get(AirplaneURL)
+        AirlineManagerPage = self.logonSession.get(AirplaneURL, verify=local_Network_Debug)
         current_random = self.getCurrentRandom(AirlineManagerPage.url, AirlineManagerPage.text)
         self.logonSession.headers['Referer'] = AirlineManagerPage.url
         # 获取可用航班号
@@ -147,7 +159,7 @@ class Flight_Planning_Sub_System:
                         AirlineManagerPage.text.split(t_url + '"')[1].split('"c":"')[1].split('"')[0]}
         t_header.update(self.logonSession.headers)
         t_url = current_random + t_url + '&_=%d' % self.getTimestamp()
-        t_page = self.logonSession.get(t_url, headers=t_header)
+        t_page = self.logonSession.get(t_url, headers=t_header, verify=local_Network_Debug)
         # 返回页面是XML里夹了个html，先把HTML搞出来
         t_page_text = self.DeleteALLChar(t_page.text.split(']]></component>')[0].split('><![CDATA[')[1])
         AirlineNumber = [-1]
@@ -195,9 +207,8 @@ class Flight_Planning_Sub_System:
                 Recursion_GetSpecialID_A(unit)
         # 填充数据成功
         t_url = current_random + t_url
-        WeekPlanPage = self.logonSession.post(t_url, data=first_post_data)
+        WeekPlanPage = self.logonSession.post(t_url, data=first_post_data, verify=local_Network_Debug)
         current_random = self.getCurrentRandom(WeekPlanPage.url, WeekPlanPage.text)
-        # TODO:填充排班数据
         second_post_data = {}
         t_url = 'IFormSubmitListener-tabs-panel-newFlight-flightPlanning-flight.planning.form'
 
@@ -252,13 +263,13 @@ class Flight_Planning_Sub_System:
                                      'days:daySelection:6:ticked': 'on'})
         second_post_data.update({'segmentSettings:0:newDeparture:hours': str(DepartHour),
                                  'segmentSettings:0:newDeparture:minutes': str(DepartMinute),
-                                 'segmentsContainer:segments:0:departure-offsets:0:departureOffset': '',
-                                 'segmentsContainer:segments:0:departure-offsets:1:departureOffset': '',
-                                 'segmentsContainer:segments:0:departure-offsets:2:departureOffset': '',
-                                 'segmentsContainer:segments:0:departure-offsets:3:departureOffset': '',
-                                 'segmentsContainer:segments:0:departure-offsets:4:departureOffset': '',
-                                 'segmentsContainer:segments:0:departure-offsets:5:departureOffset': '',
-                                 'segmentsContainer:segments:0:departure-offsets:6:departureOffset': '',
+                                 'segmentsContainer:segments:0:departure-offsets:0:departureOffset': '0',
+                                 'segmentsContainer:segments:0:departure-offsets:1:departureOffset': '0',
+                                 'segmentsContainer:segments:0:departure-offsets:2:departureOffset': '0',
+                                 'segmentsContainer:segments:0:departure-offsets:3:departureOffset': '0',
+                                 'segmentsContainer:segments:0:departure-offsets:4:departureOffset': '0',
+                                 'segmentsContainer:segments:0:departure-offsets:5:departureOffset': '0',
+                                 'segmentsContainer:segments:0:departure-offsets:6:departureOffset': '0',
                                  'segmentsContainer:segments:0:speed-overrides:0:speedOverride': '',
                                  'segmentsContainer:segments:0:speed-overrides:1:speedOverride': '',
                                  'segmentsContainer:segments:0:speed-overrides:2:speedOverride': '',
@@ -266,9 +277,26 @@ class Flight_Planning_Sub_System:
                                  'segmentsContainer:segments:0:speed-overrides:4:speedOverride': '',
                                  'segmentsContainer:segments:0:speed-overrides:5:speedOverride': '',
                                  'segmentsContainer:segments:0:speed-overrides:6:speedOverride': ''})
-        debug_var = self.logonSession.post(current_random + t_url, data=second_post_data)
+        last_result = self.logonSession.post(current_random + t_url, data=second_post_data, verify=local_Network_Debug)
         # 建立了一条新航线
-        # print(debug_var.text)
+        return last_result.url  # 好像可以重复调用API建立多航线
+
+    # 信息披露函数定义区
+    def listServiceInfo(self):
+        return self.cache_ServiceInfo.keys()
+
+    def listAirportInfo(self):
+        return self.cache_AirportInfo.keys()
+
+    def listSubCompanyInfo(self):
+        return self.cache_SubCompany.keys()
+
+    def searchAirportNameBySimpleName(self, simpleName: str) -> str:
+        # 通过搜索三字母简写来获取机场的完整名称
+        simpleName = '(%s)' % simpleName
+        for unit in self.listAirportInfo():
+            if simpleName in unit:
+                return unit
 
     # 辅助函数定义区
     @staticmethod
@@ -289,3 +317,15 @@ class Flight_Planning_Sub_System:
     def getTimestamp() -> int:
         from time import time
         return int(time() * 1000)
+
+    def SearchInfoIntelligently(self):
+        # 智能搜索航班信息和服务信息，原理是遍历子公司以获取信息
+        self.SearchSubCompany()  # 搜索所有子公司
+        for subCompany in self.cache_SubCompany.keys():
+            self.SwitchSubCompany(subCompany)
+            t1 = self.SearchFleets()
+            if len(t1) > 0:  # 发现可用航班
+                for AirFleet_URL in t1.keys():
+                    self.BuildAirlineInfoCache(AirFleet_URL)  # 尝试建立缓存信息
+                    return True
+        return False
