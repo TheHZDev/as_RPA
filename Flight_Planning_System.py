@@ -340,7 +340,7 @@ class Flight_Planning_Sub_System:
         result_list = []
 
         def Recursion_GetMaintenanceRatioInfo(root: bs4.element.Tag):
-            if root.name == 'th' and root.getText() == 'Maintenance ratio':
+            if root.name == 'th' and root.getText() in ('Maintenance ratio', '維護比例'):
                 t1: str = root.parent.contents[1].contents[0].getText()
                 if int(t1.replace('%', '')) < 100:
                     result_list.append('Warning')
