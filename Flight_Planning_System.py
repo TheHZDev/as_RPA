@@ -3,7 +3,7 @@ from urllib.parse import urlparse
 
 import bs4.element
 from bs4 import BeautifulSoup
-from requests import Session
+from requests import Session, Response
 
 local_Network_Debug = True
 local_Network_Debug = not local_Network_Debug
@@ -143,7 +143,7 @@ class Flight_Planning_Sub_System:
     def BuildNewAirlinePlan(self, AirplaneURL: str, SrcAirport: str, DstAirport: str,
                             Price: int, Service: str, DepartHour: int = -1, DepartMinute: int = -1,
                             WeekPlan: Tuple[bool, bool, bool, bool, bool, bool, bool] =
-                            (True, True, True, True, True, True, True)):
+                            (True, True, True, True, True, True, True), LastResponse: Response = None):
         """
         使用给定的参数建立一个新航班，航班号采用随机生成（暂不支持航班中转）\n
         :param AirplaneURL: 要管理的机队的URL
@@ -154,6 +154,7 @@ class Flight_Planning_Sub_System:
         :param WeekPlan: 周计划排班，都选True就是一周全排
         :param Price: 价格系数，实际上是个百分比，如110 <=> 110%
         :param Service: 服务系数，请使用其它函数生成该数值
+        :param LastResponse: 上次的响应，这是一个内部调用，请勿使用
         """
         # 函数操作：
         # 1、先获取一个可用的航班号码，有两种方式：随机提交一个观察XML响应，或者获取所有可用的航班号并选择一个。
@@ -164,7 +165,10 @@ class Flight_Planning_Sub_System:
                 DstAirport in self.cache_AirportInfo.keys() and Service in self.cache_ServiceInfo.keys() and
                 50 <= Price <= 200):
             raise Exception('请检查设置参数是否正确！参数异常，已拒绝。')
-        AirlineManagerPage = self.logonSession.get(AirplaneURL, verify=local_Network_Debug, timeout=10000)
+        if isinstance(LastResponse, Response):
+            AirlineManagerPage = LastResponse  # 可重复使用的Response
+        else:
+            AirlineManagerPage = self.logonSession.get(AirplaneURL, verify=local_Network_Debug, timeout=10000)
         current_random = self.getCurrentRandom(AirlineManagerPage.url, AirlineManagerPage.text)
         self.logonSession.headers['Referer'] = AirlineManagerPage.url
         # 获取可用航班号
@@ -328,7 +332,8 @@ class Flight_Planning_Sub_System:
         last_result = self.logonSession.post(current_random + t_url, data=second_post_data,
                                              verify=local_Network_Debug, timeout=10000)
         # 建立了一条新航线
-        return last_result.url  # 好像可以重复调用API建立多航线
+        return {'AirplaneURL': last_result.url, 'LastResponse': last_result,
+                'AllowAutoFlightPlan': self.checkMaintenanceRatio(last_result.text)}  # 好像可以重复调用API建立多航线
 
     def checkMaintenanceRatio(self, htmlText: str):
         """检查排班后的维护比例是否低于100%，如果低于，就发出提示（返回是否继续进行自动排班的提示）"""
@@ -351,13 +356,22 @@ class Flight_Planning_Sub_System:
             return False
         return True
 
-    def CommitFlightPlan(self, AirplaneURL: str, UserSelect: int = 1):
+    def CommitFlightPlan(self, AirplaneURL: str, UserSelect: int = 1, LastResponse: Response = None):
         """
         提交航班计划到系统，默认为1，即立即执行\n
         :param AirplaneURL: 排班URL，执行完排班后返回的URL
         :param UserSelect: 用户选择，一般只介于1~4之间
+        :param LastResponse: 排班结束后返回的响应块，可重复使用
         """
-        FlightPlanPage = self.logonSession.get(AirplaneURL, verify=local_Network_Debug, timeout=10000)
+        # 有四种操作可以选择：
+        # 1 - 立即执行航班计划
+        # 2 - 延迟三天执行航班计划
+        # 3 - 锁定航班计划
+        # 4 - 清空航班计划
+        if isinstance(LastResponse, Response):
+            FlightPlanPage = LastResponse
+        else:
+            FlightPlanPage = self.logonSession.get(AirplaneURL, verify=local_Network_Debug, timeout=10000)
         current_random = self.getCurrentRandom(FlightPlanPage.url, FlightPlanPage.text)
         t_url = 'IFormSubmitListener-tabs-panel-visualFlightPlan-action'
         post_data = {'select': str(UserSelect)}
@@ -435,3 +449,115 @@ class Flight_Planning_Sub_System:
                     self.BuildAirlineInfoCache(AirFleet_URL)  # 尝试建立缓存信息
                     return True
         return False
+
+    # UI友好函数
+    def MakeSingleFlightPlan(self, SrcAirport: str, DstAirport: str, Price: int, Service: str,
+                             callback_AskQuestion=None, DepartureTime: str = ''):
+        """
+        根据更通俗易懂的描述转换为程序设置\n
+        :param SrcAirport: 出发机场，可以输入机场的三字母简称或全称（全称是AS上的机场全名）
+        :param DstAirport: 目的机场，可以输入机场的三字母简称或全称（全称是AS上的机场全名）
+        :param Price: 价格系数，如果想使用110%的价格系数，请输入110即可
+        :param Service: 服务系数，您应当输入在AS中明确定义的服务方案名称，否则将使用默认值Standard
+        :param DepartureTime: 出发时间，当您希望在UTC时间20点35分起飞的时候，请输入20:35，若您想使用系统推荐时间，请放空
+        :param callback_AskQuestion: 回调函数，用于输入问题并获得用户响应
+        :return: 一个字典，包含了函数的各种信息
+        """
+        if SrcAirport not in self.cache_AirportInfo.keys():
+            for unit in self.cache_AirportInfo.keys():
+                if SrcAirport in unit:
+                    SrcAirport = unit
+                    break
+            if SrcAirport not in self.cache_AirportInfo.keys():
+                raise Exception('无法确定出发机场的名字，请检查输入是否有误。')
+        if DstAirport not in self.cache_AirportInfo.keys():
+            for unit in self.cache_AirportInfo.keys():
+                if DstAirport in unit:
+                    DstAirport = unit
+                    break
+            if DstAirport not in self.cache_AirportInfo.keys():
+                raise Exception('无法确定到达机场的名字，请检查输入是否有误。')
+        if not isinstance(Price, int):
+            Price = 100
+        if not (50 <= Price <= 200):
+            try:
+                if callable(callback_AskQuestion):
+                    Price = int(callback_AskQuestion('价格系数仅限于50到200之间，请输入50到200之间的正整数：'))
+                if not (50 <= Price <= 200):
+                    Price = 100
+            except:
+                Price = 100
+        if Service not in self.cache_ServiceInfo.keys():
+            if callable(callback_AskQuestion):
+                for unit in self.cache_ServiceInfo.keys():
+                    if Service in unit:
+                        if callback_AskQuestion('请确认是否选择该项服务 %s，您填写的是 %s。(Y/N)' % (unit, Service)
+                                                ).upper() == 'Y':
+                            Service = unit
+                            break
+                if Service not in self.cache_ServiceInfo.keys():
+                    Service = 'Standard'
+            else:
+                Service = 'Standard'
+        DepartureHour = -1
+        DepartureMinute = -1
+        if isinstance(DepartureTime, str) and len(DepartureTime) > 0:
+            if DepartureTime.count(':') != 1:
+                from datetime import datetime
+                raise Exception('请输入正确的时间格式！例如 %s。' % datetime.now().strftime('%M:%S'))
+            DepartureTime = DepartureTime.replace(' ', '').split(':')
+            try:
+                DepartureHour = int(DepartureTime[0])
+                DepartureMinute = int(DepartureTime[1])
+            except ValueError:
+                raise Exception('请输入正确的时间数字，不要夹带字母等非数字！')
+        return {'Src': SrcAirport, 'Dst': DstAirport, 'Price': Price, 'Service': Service,
+                'Hour': DepartureHour, 'Minute': DepartureMinute}
+
+    def UI_AutoMakeFlightPlan(self, AirplaneURL: str, configList: list, delayExecute: bool = False):
+        """
+        UI友好型航班自动管理系统的统一服务接口，但目前仍需要提供需排班的飞机对应的排程URL才能排班\n
+        :param AirplaneURL: 需要自动排班的航机的排程URL，由SearchFleets函数提供
+        :param configList: 设置列表，请使用MakeSingleFlightPlan生成多个，或使用Experimental_MakeFlightPlanConfig函数
+        :param delayExecute: 是否延迟执行排班。若设为True，将在排班正常结束（维护比仍高于100）后三天后执行排班计划
+        """
+        t1 = self.BuildNewAirlinePlan(AirplaneURL, configList[0].get('Src'), configList[0].get('Dst'),
+                                      configList[0].get('Price'), configList[0].get('Service'),
+                                      configList[0].get('Hour'), configList[0].get('Minute'))
+        for line in configList[1:]:
+            if not t1.get('AllowAutoFlightPlan'):
+                break
+            t1 = self.BuildNewAirlinePlan('', line.get('Src'), line.get('Dst'), line.get('Price'),
+                                          line.get('Service'), line.get('Hour'), line.get('Minute'),
+                                          LastResponse=t1.get('LastResponse'))
+        if t1.get('AllowAutoFlightPlan'):
+            if delayExecute:
+                user_commit = 2
+            else:
+                user_commit = 1
+            self.CommitFlightPlan('', user_commit, t1.get('LastResponse'))
+
+    def Experimental_MakeFlightPlanConfig(self, FlightPath: str, ServiceList: list, PriceList: list,
+                                          FirstDepartureTime: str):
+        """
+        警告：该函数为实验性函数，由此产生的任何非预期结果不对此负任何责任。\n
+        从更通俗易懂的航线，可循环使用的服务列表次序和价格次序中生成设置。\n
+        :param FlightPath: 航班路径，中间用'-'连接，比如“HKG-SIN-CMB”
+        :param ServiceList: 服务名称列表，请确保您输入了正确的名称，否则重置为Standard
+        :param PriceList: 价格列表，里面必须全都是数字，否则重置为100
+        :param FirstDepartureTime: 第一次的起飞时间，若起飞时间为10点36分，请输入10:36
+        :return: 设置块，可直接填入UI_AutoMakeFlightPlan函数
+        """
+        FlightPath = FlightPath.split('-')
+        result = [self.MakeSingleFlightPlan(FlightPath[0], FlightPath[1], PriceList[0], ServiceList[0],
+                                            DepartureTime=FirstDepartureTime)]
+        for airportID in range(1, len(FlightPath) - 1):
+            result.append(self.MakeSingleFlightPlan(FlightPath[airportID], FlightPath[airportID + 1],
+                                                    PriceList[airportID % len(PriceList)],
+                                                    ServiceList[airportID % len(ServiceList)]))
+        return result
+
+    @staticmethod
+    def example_askQuestion(question: str):
+        # 一个示例的询问函数
+        return input(question)
