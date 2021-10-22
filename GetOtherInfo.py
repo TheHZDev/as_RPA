@@ -348,7 +348,25 @@ class CalcAirplaneProperty:
         # 初始计算完成
         if MergeSubCompany:
             select_sql = "SELECT AirCompany, ParentAirCompany FROM AirCompanyMap;"
-            # TODO: 归并计算子公司
+            cache_SubCompany = {}
+            for line in t_sql.execute(select_sql).fetchall():
+                cache_SubCompany[line[0]] = line[1]
+            # 建立子公司映射表缓存
+            flag_continue_merge = True
+            while flag_continue_merge:
+                for line in cache_SubCompany.keys():
+                    if result_dict.get(line) > 0:
+                        result_dict[cache_SubCompany[line]] += result_dict.get(line)
+                        result_dict[line] = 0
+                # 循环归并，相当于冒泡排序
+                flag_continue_merge = False
+                for line in cache_SubCompany.keys():
+                    if result_dict.get(line) > 0:
+                        # 当满足所有子公司现金都为0的时候，归并计算结束
+                        flag_continue_merge = True
+                        break
+            for line in cache_SubCompany.keys():
+                result_dict.pop(line)  # 删除资产为0的子公司
         result_list = []
         for AirCompany in result_dict.keys():
             result_list.append((AirCompany, result_dict.get(AirCompany)))
