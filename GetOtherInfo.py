@@ -15,6 +15,7 @@ class CalcAirplaneProperty:
     cache_CountryIndex = []
     cache_AirCompanyURL = []
     cache_CabinAnalyze = {}
+    flag_price_ok = False
 
     def __init__(self, ServerName: str, UserName: str = '', Passwd: str = ''):
         from LoginAirlineSim import ServerMap, getBaseURL
@@ -27,7 +28,7 @@ class CalcAirplaneProperty:
         if isinstance(UserName, str) and isinstance(Passwd, str) and len(UserName) * len(Passwd) > 1:
             self.login_Passwd = Passwd
             self.login_UserName = UserName
-        self.DB_Init()
+        # self.DB_Init()
 
     def DB_Init(self):
         t1 = sqlite3.connect(self.baseDB)
@@ -54,7 +55,7 @@ class CalcAirplaneProperty:
         t1.execute(clear_sql)
         create_sql = """
         CREATE TABLE IF NOT EXISTS AirCompanyMap(
-            AirCompany TEXT PRIMARY KEY,
+            AirCompany TEXT,
             ParentAirCompany TEXT
         );
         """
@@ -65,7 +66,7 @@ class CalcAirplaneProperty:
         t1.execute(clear_sql)
         create_sql = """
         CREATE TABLE IF NOT EXISTS AirplaneInfo(
-            AirType TEXT PRIMARY KEY,
+            AirType TEXT,
             MaxPassenger INTEGER,
             MaxCargo INTEGER,
             MinFlightLength INTEGER,
@@ -90,6 +91,7 @@ class CalcAirplaneProperty:
         # MaxArriveRunway - 最长起飞跑道长度，单位是米
         # Price - 航机的购买价格，租赁保证金取该数值的二十分之一
         t1.execute(create_sql)
+        t1.commit()
 
     def getAirplaneInfoIndex(self):
         """获取所有的机队信息，还包括后面可以使用的各家航空公司的URL和航机的URL"""
@@ -99,7 +101,7 @@ class CalcAirplaneProperty:
             if root.name == 'select' and root.attrs.get('id', '') == 'country-select':
                 prefix_url = first_url + '?%s=' % root.attrs.get('name')
                 for t_unit in root.contents:
-                    if isinstance(t_unit, bs4_Tag) and bs4_Tag.name == 'option':
+                    if isinstance(t_unit, bs4_Tag) and t_unit.name == 'option':
                         self.cache_CountryIndex.append(prefix_url + t_unit.attrs.get('value'))
                 return
             for t_unit in root.children:
@@ -108,7 +110,7 @@ class CalcAirplaneProperty:
                 if isinstance(t_unit, bs4_Tag):
                     Recursion_GetAllCountryID(t_unit)
 
-        for unit in BeautifulSoup(self.DeleteALLChar(requests.get(first_url).text)):
+        for unit in BeautifulSoup(self.DeleteALLChar(requests.get(first_url).text), 'html5lib'):
             if len(self.cache_CountryIndex) > 0:
                 break
             if isinstance(unit, bs4_Tag):
@@ -138,7 +140,7 @@ class CalcAirplaneProperty:
                 for t_unit in root.children:
                     if isinstance(t_unit, bs4_Tag) and t_unit.name == 'tbody':
                         AirCompanyName: str = t_unit.contents[0].contents[0].getText()  # 解析企业数据
-                        pre_AirCompany_URL: str = t_unit.contents[1].contents[0].contents[2].attrs.get('href')
+                        pre_AirCompany_URL: str = t_unit.contents[1].contents[0].contents[3].attrs.get('href')
                         self.cache_AirCompanyURL.append(self.baseURL_AirCompany + pre_AirCompany_URL)
                         for line in t_unit.contents[3:len(t_unit.contents) - 1]:
                             isRent = 0
@@ -266,6 +268,7 @@ class CalcAirplaneProperty:
                 t_sql.commit()
                 self.callback_outputLog('已完成对航机 %s 家族的爬取。' % line)
             t_sql.close()
+        self.flag_price_ok = True
 
     @staticmethod
     def DeleteALLChar(html_str: str) -> str:
@@ -352,10 +355,18 @@ class CalcAirplaneProperty:
             for line in t_sql.execute(select_sql).fetchall():
                 cache_SubCompany[line[0]] = line[1]
             # 建立子公司映射表缓存
+            t_list = []
+            for line in cache_SubCompany.keys():
+                if line not in result_dict.keys():
+                    t_list.append(line)
+            for line in t_list:
+                cache_SubCompany.pop(line)
             flag_continue_merge = True
             while flag_continue_merge:
                 for line in cache_SubCompany.keys():
                     if result_dict.get(line) > 0:
+                        if cache_SubCompany.get(line) not in result_dict.keys():
+                            result_dict[cache_SubCompany.get(line)] = 0
                         result_dict[cache_SubCompany[line]] += result_dict.get(line)
                         result_dict[line] = 0
                 # 循环归并，相当于冒泡排序
@@ -380,3 +391,20 @@ class CalcAirplaneProperty:
         from functools import cmp_to_key
         result_list.sort(key=cmp_to_key(_cmp), reverse=DescSorted)
         return result_list
+
+
+if __name__ == '__main__':
+    calcService = CalcAirplaneProperty('Otto', 'Linh_T@yeah.net', 'Linh_Tan92')
+    # calcService.getAirplaneInfoIndex()
+    # while len(calcService.cache_CountryIndex) > 0:
+    #     sleep(30)
+    # Thread(target=calcService.thread_getAirplanePrice).start()
+    # calcService.getAirCompanyInfoIndex()
+    # while len(calcService.cache_AirCompanyURL) > 0:
+    #     sleep(30)
+    # while not calcService.flag_price_ok:
+    #     sleep(30)
+    # sleep(10)
+    print('企业\t资产负债表')
+    for line in calcService.CalcBalanceSheet():
+        print('%s\t%.2f K AS$' % (line[0], line[1] / 1000))
