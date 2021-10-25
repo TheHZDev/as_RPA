@@ -18,7 +18,7 @@ class Flight_Planning_Sub_System:
 
     def __init__(self, logonSession: Session, ServerName: str, callback_raiseException=None):
         """
-        航班计划管理子系统\n
+        航班计划管理子系统
         :param logonSession: 登录后的Session
         :param ServerName: 服务器名称，比如Otto、Junker、Yeager
         :param callback_raiseException: 回调函数，GUI预留接口
@@ -30,6 +30,12 @@ class Flight_Planning_Sub_System:
         # 一些初始化
         self.SearchInfoIntelligently()
 
+    def __del__(self):
+        # 程序结束后调用析构函数以关闭AirlineSim会话
+        target_url = 'https://sar.simulogics.games/api/sessions/' + \
+                     self.logonSession.cookies.get('as-sid').split('_')[0]
+        self.logonSession.delete(target_url)
+
     def SearchFleets(self) -> dict:
         # 搜索需要进行排班的航机，已经在执行飞行任务的（绿色）、已排班但未执行的（黄色）、航班出现了问题的（红色）将会被跳过
         target_url = self.baseURL + '/app/fleets'
@@ -39,8 +45,8 @@ class Flight_Planning_Sub_System:
             'html5lib')
 
         def Recursion_GetFleetsInfo(root: bs4.element.Tag):
-            if root.attrs.get('title', '') == 'Flight Planning' and root.attrs.get('class', '') == ['btn',
-                                                                                                    'btn-default']:
+            if root.attrs.get('title', '') in ('Flight Planning', '排程') and \
+                    root.attrs.get('class', '') == ['btn', 'btn-default']:
                 # 检测到需要排班的航机
                 origin_root: bs4.element.Tag = root.parent.parent.parent.parent  # 定位到该行的Tag
                 link_URL = self.baseURL + '/app' + root.attrs.get('href')[1:]  # 为了去除相对的'.'
@@ -145,7 +151,7 @@ class Flight_Planning_Sub_System:
                             WeekPlan: Tuple[bool, bool, bool, bool, bool, bool, bool] =
                             (True, True, True, True, True, True, True), LastResponse: Response = None):
         """
-        使用给定的参数建立一个新航班，航班号采用随机生成（暂不支持航班中转）\n
+        使用给定的参数建立一个新航班，航班号采用随机生成（暂不支持航班中转）
         :param AirplaneURL: 要管理的机队的URL
         :param SrcAirport: 源机场，航班的出发地
         :param DstAirport: 目标机场，航班的目的地
@@ -161,9 +167,9 @@ class Flight_Planning_Sub_System:
         # 2、获取表单的第一个随机数据（也许是为了防脚本），然后构造带有出发机场、目标机场、出发时间、价格乘数、服务乘数的表单
         # 3、构造带有航班排程（周计划排程）的表单并提交
         # 参数正确性检查
-        if not (AirplaneURL.startswith(self.baseURL) and SrcAirport in self.cache_AirportInfo.keys() and
-                DstAirport in self.cache_AirportInfo.keys() and Service in self.cache_ServiceInfo.keys() and
-                50 <= Price <= 200):
+        if not ((AirplaneURL.startswith(self.baseURL) or isinstance(LastResponse, Response))
+                and SrcAirport in self.cache_AirportInfo.keys() and DstAirport in self.cache_AirportInfo.keys() and
+                Service in self.cache_ServiceInfo.keys() and 50 <= Price <= 200):
             raise Exception('请检查设置参数是否正确！参数异常，已拒绝。')
         if isinstance(LastResponse, Response):
             AirlineManagerPage = LastResponse  # 可重复使用的Response
@@ -342,7 +348,7 @@ class Flight_Planning_Sub_System:
         def Recursion_GetMaintenanceRatioInfo(root: bs4.element.Tag):
             if root.name == 'th' and root.getText() in ('Maintenance ratio', '維護比例'):
                 t1: str = root.parent.contents[1].contents[0].getText()
-                if int(t1.replace('%', '')) < 100:
+                if float(t1.replace('%', '').replace(',', '').strip()) < 100:
                     result_list.append('Warning')
                 return
             for t_unit in root:
@@ -358,7 +364,7 @@ class Flight_Planning_Sub_System:
 
     def CommitFlightPlan(self, AirplaneURL: str, UserSelect: int = 1, LastResponse: Response = None):
         """
-        提交航班计划到系统，默认为1，即立即执行\n
+        提交航班计划到系统，默认为1，即立即执行
         :param AirplaneURL: 排班URL，执行完排班后返回的URL
         :param UserSelect: 用户选择，一般只介于1~4之间
         :param LastResponse: 排班结束后返回的响应块，可重复使用
@@ -454,7 +460,7 @@ class Flight_Planning_Sub_System:
     def MakeSingleFlightPlan(self, SrcAirport: str, DstAirport: str, Price: int, Service: str,
                              callback_AskQuestion=None, DepartureTime: str = ''):
         """
-        根据更通俗易懂的描述转换为程序设置\n
+        根据更通俗易懂的描述转换为程序设置
         :param SrcAirport: 出发机场，可以输入机场的三字母简称或全称（全称是AS上的机场全名）
         :param DstAirport: 目的机场，可以输入机场的三字母简称或全称（全称是AS上的机场全名）
         :param Price: 价格系数，如果想使用110%的价格系数，请输入110即可
@@ -516,7 +522,7 @@ class Flight_Planning_Sub_System:
 
     def UI_AutoMakeFlightPlan(self, AirplaneURL: str, configList: list, delayExecute: bool = False):
         """
-        UI友好型航班自动管理系统的统一服务接口，但目前仍需要提供需排班的飞机对应的排程URL才能排班\n
+        UI友好型航班自动管理系统的统一服务接口，但目前仍需要提供需排班的飞机对应的排程URL才能排班
         :param AirplaneURL: 需要自动排班的航机的排程URL，由SearchFleets函数提供
         :param configList: 设置列表，请使用MakeSingleFlightPlan生成多个，或使用Experimental_MakeFlightPlanConfig函数
         :param delayExecute: 是否延迟执行排班。若设为True，将在排班正常结束（维护比仍高于100）后三天后执行排班计划
@@ -540,8 +546,8 @@ class Flight_Planning_Sub_System:
     def Experimental_MakeFlightPlanConfig(self, FlightPath: str, ServiceList: list, PriceList: list,
                                           FirstDepartureTime: str):
         """
-        警告：该函数为实验性函数，由此产生的任何非预期结果不对此负任何责任。\n
-        从更通俗易懂的航线，可循环使用的服务列表次序和价格次序中生成设置。\n
+        警告：该函数为实验性函数，由此产生的任何非预期结果不对此负任何责任。
+        从更通俗易懂的航线，可循环使用的服务列表次序和价格次序中生成设置。
         :param FlightPath: 航班路径，中间用'-'连接，比如“HKG-SIN-CMB”
         :param ServiceList: 服务名称列表，请确保您输入了正确的名称，否则重置为Standard
         :param PriceList: 价格列表，里面必须全都是数字，否则重置为100
