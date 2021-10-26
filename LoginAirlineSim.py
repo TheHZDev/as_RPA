@@ -29,7 +29,7 @@ ServerMap = {'Yeager': 'https://yeager.airlinesim.aero/action/portal/index',
              'Kaitak': 'https://kaitak.airlinesim.aero/action/portal/index',
              'Otto': 'https://otto.airlinesim.aero/action/portal/index'}
 
-local_Network_Debug = True
+local_Network_Debug = False
 local_Network_Debug = not local_Network_Debug
 
 

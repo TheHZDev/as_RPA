@@ -28,7 +28,7 @@ class CalcAirplaneProperty:
         if isinstance(UserName, str) and isinstance(Passwd, str) and len(UserName) * len(Passwd) > 1:
             self.login_Passwd = Passwd
             self.login_UserName = UserName
-        # self.DB_Init()
+        self.DB_Init()
 
     def DB_Init(self):
         t1 = sqlite3.connect(self.baseDB)
@@ -392,19 +392,18 @@ class CalcAirplaneProperty:
         result_list.sort(key=cmp_to_key(_cmp), reverse=DescSorted)
         return result_list
 
-
-if __name__ == '__main__':
-    calcService = CalcAirplaneProperty('Otto', 'Linh_T@yeah.net', 'Linh_Tan92')
-    # calcService.getAirplaneInfoIndex()
-    # while len(calcService.cache_CountryIndex) > 0:
-    #     sleep(30)
-    # Thread(target=calcService.thread_getAirplanePrice).start()
-    # calcService.getAirCompanyInfoIndex()
-    # while len(calcService.cache_AirCompanyURL) > 0:
-    #     sleep(30)
-    # while not calcService.flag_price_ok:
-    #     sleep(30)
-    # sleep(10)
-    print('企业\t资产负债表')
-    for line in calcService.CalcBalanceSheet():
-        print('%s\t%.2f K AS$' % (line[0], line[1] / 1000))
+# if __name__ == '__main__':
+#     calcService = CalcAirplaneProperty('Otto', input('Username of Otto:'), input('Password of Otto'))
+#     calcService.getAirplaneInfoIndex()
+#     while len(calcService.cache_CountryIndex) > 0:
+#         sleep(30)
+#     Thread(target=calcService.thread_getAirplanePrice).start()
+#     calcService.getAirCompanyInfoIndex()
+#     while len(calcService.cache_AirCompanyURL) > 0:
+#         sleep(30)
+#     while not calcService.flag_price_ok:
+#         sleep(30)
+#     sleep(10)
+#     print('企业\t资产负债表')
+#     for line in calcService.CalcBalanceSheet():
+#         print('%s\t%.2f K AS$' % (line[0], line[1] / 1000))

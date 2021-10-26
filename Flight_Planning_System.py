@@ -1,11 +1,11 @@
 from typing import Tuple
 from urllib.parse import urlparse
 
-import bs4.element
 from bs4 import BeautifulSoup
+from bs4.element import Tag as bs4_tag
 from requests import Session, Response
 
-local_Network_Debug = True
+local_Network_Debug = False
 local_Network_Debug = not local_Network_Debug
 
 
@@ -15,6 +15,7 @@ class Flight_Planning_Sub_System:
     cache_SubCompany = {}
     cache_AirportInfo = {}
     cache_ServiceInfo = {}
+    cache_search_fleets = {}
 
     def __init__(self, logonSession: Session, ServerName: str, callback_raiseException=None):
         """
@@ -44,27 +45,28 @@ class Flight_Planning_Sub_System:
             self.DeleteALLChar(self.logonSession.get(target_url, verify=local_Network_Debug, timeout=10000).text),
             'html5lib')
 
-        def Recursion_GetFleetsInfo(root: bs4.element.Tag):
+        def Recursion_GetFleetsInfo(root: bs4_tag):
             if root.attrs.get('title', '') in ('Flight Planning', '排程') and \
                     root.attrs.get('class', '') == ['btn', 'btn-default']:
                 # 检测到需要排班的航机
-                origin_root: bs4.element.Tag = root.parent.parent.parent.parent  # 定位到该行的Tag
+                origin_root: bs4_tag = root.parent.parent.parent.parent  # 定位到该行的Tag
                 link_URL = self.baseURL + '/app' + root.attrs.get('href')[1:]  # 为了去除相对的'.'
                 Airplane_NickName = origin_root.contents[1].contents[0].getText()
                 Airplane_Type = origin_root.contents[2].contents[0].getText()
                 fleetsInfo[link_URL] = {'NickName': Airplane_NickName, 'AirType': Airplane_Type}
                 return
             for unit in root.children:
-                if isinstance(unit, bs4.element.Tag):
+                if isinstance(unit, bs4_tag):
                     Recursion_GetFleetsInfo(unit)
 
         for unit_1 in FleetsPage.children:
-            if isinstance(unit_1, bs4.element.Tag):
+            if isinstance(unit_1, bs4_tag):
                 Recursion_GetFleetsInfo(unit_1)
         if len(self.cache_AirportInfo) == 0 or len(self.cache_ServiceInfo) == 0:
             for unit_1 in fleetsInfo.keys():
                 self.BuildAirlineInfoCache(unit_1)
                 break
+        self.cache_search_fleets = fleetsInfo.copy()
         return fleetsInfo
 
     def SearchSubCompany(self) -> dict:
@@ -75,17 +77,17 @@ class Flight_Planning_Sub_System:
             self.DeleteALLChar(self.logonSession.get(self.baseURL, verify=local_Network_Debug, timeout=10000).text),
             'html5lib')
 
-        def Recursion_GetCompanyInfo(root: bs4.element.Tag):
+        def Recursion_GetCompanyInfo(root: bs4_tag):
             if root.attrs.get('href', '').startswith('../../app/enterprise/dashboard?select='):
                 id_sub_company = root.attrs.get('href').replace('../../app/enterprise/dashboard?select=', '')
                 self.cache_SubCompany[root.contents[0].getText()] = id_sub_company
                 return
             for unit in root.children:
-                if isinstance(unit, bs4.element.Tag):
+                if isinstance(unit, bs4_tag):
                     Recursion_GetCompanyInfo(unit)
 
         for unit_1 in MainPage.children:
-            if isinstance(unit_1, bs4.element.Tag):
+            if isinstance(unit_1, bs4_tag):
                 Recursion_GetCompanyInfo(unit_1)
         return self.cache_SubCompany
 
@@ -112,7 +114,7 @@ class Flight_Planning_Sub_System:
         # 进入排程管理界面，获取有关机队的机场信息、服务信息，经过对比，这些信息似乎是静态的
         FleetsPage = self.logonSession.get(AirplaneURL, verify=local_Network_Debug, timeout=10000)
 
-        def Recursion_GetBasicInfo(root: bs4.element.Tag):
+        def Recursion_GetBasicInfo(root: bs4_tag):
             if root.name == 'select':
                 if root.attrs.get('name', '') == 'origin':
                     for option in root.children:
@@ -124,11 +126,11 @@ class Flight_Planning_Sub_System:
                             self.cache_ServiceInfo[option.getText()] = option.attrs.get('value')
                 return
             for unit_1 in root.children:
-                if isinstance(unit_1, bs4.element.Tag):
+                if isinstance(unit_1, bs4_tag):
                     Recursion_GetBasicInfo(unit_1)
 
         for unit in BeautifulSoup(self.DeleteALLChar(FleetsPage.text), 'html5lib'):
-            if isinstance(unit, bs4.element.Tag):
+            if isinstance(unit, bs4_tag):
                 Recursion_GetBasicInfo(unit)
         # 这里加一个判断，适用于那种连现有航班号都没有的情况
         if len(self.cache_ServiceInfo) == 0 or len(self.cache_AirportInfo) == 0:
@@ -143,7 +145,7 @@ class Flight_Planning_Sub_System:
             # 这还是XML文档里夹了一个HTML文档
             t_text = self.DeleteALLChar(NewAirlinePage.text.split(']]></component>')[0].split('><![CDATA[')[1])
             for unit in BeautifulSoup(t_text, 'html5lib'):
-                if isinstance(unit, bs4.element.Tag):
+                if isinstance(unit, bs4_tag):
                     Recursion_GetBasicInfo(unit)
 
     def BuildNewAirlinePlan(self, AirplaneURL: str, SrcAirport: str, DstAirport: str,
@@ -197,27 +199,27 @@ class Flight_Planning_Sub_System:
                     'Wicket-Ajax-BaseURL': AirlineManagerPage.url.split('/app/')[1],
                     'Wicket-FocusedElementId':
                         AirlineManagerPage.text.split(t_url + '"')[1].split('"c":"')[1].split('"')[0]}
-        t_header.update(self.logonSession.headers)
+        t_header.update(self.logonSession.headers.copy())
         t_url = current_random + t_url + '&_=%d' % self.getTimestamp()
         t_page = self.logonSession.get(t_url, headers=t_header, verify=local_Network_Debug, timeout=10000)
         # 返回页面是XML里夹了个html，先把HTML搞出来
         t_page_text = self.DeleteALLChar(t_page.text.split(']]></component>')[0].split('><![CDATA[')[1])
         AirlineNumber = [-1]
 
-        def Recursion_GetUsableAirlineNumber(root: bs4.element.Tag):
+        def Recursion_GetUsableAirlineNumber(root: bs4_tag):
             if root.attrs.get('class', '') == ['good', 'found']:
                 AirlineNumber[0] = int(root.parent.contents[1].contents[0].contents[0].getText())
                 return
             for t_unit in root.children:
                 if AirlineNumber[0] > 0:
                     return
-                if isinstance(t_unit, bs4.element.Tag):
+                if isinstance(t_unit, bs4_tag):
                     Recursion_GetUsableAirlineNumber(t_unit)
 
         for unit in BeautifulSoup(t_page_text, 'html5lib'):
             if AirlineNumber[0] > 0:
                 break
-            if isinstance(unit, bs4.element.Tag):
+            if isinstance(unit, bs4_tag):
                 Recursion_GetUsableAirlineNumber(unit)
         # 获取了一个可用的航班号码
         t_url = 'IFormSubmitListener-tabs-panel-newFlight-flightNumber-newNumber-aircraft.newflight.number'
@@ -227,7 +229,7 @@ class Flight_Planning_Sub_System:
                            'service': self.cache_ServiceInfo.get(Service),
                            'destination': self.cache_AirportInfo.get(DstAirport)}
 
-        def Recursion_GetSpecialID_A(root: bs4.element.Tag):
+        def Recursion_GetSpecialID_A(root: bs4_tag):
             # 获取令人厌烦的隐藏ID参数，它长这样"idXX_XX_X"
             try:
                 if root.attrs.get('action', '').endswith(t_url):
@@ -251,14 +253,14 @@ class Flight_Planning_Sub_System:
                     if len(first_post_data) >= 8 and int(first_post_data.get('departure:hours')) > 0 and \
                             int(first_post_data.get('departure:minutes')) > 0:
                         return
-                    if isinstance(t_unit, bs4.element.Tag):
+                    if isinstance(t_unit, bs4_tag):
                         Recursion_GetSpecialID_A(t_unit)
 
         for unit in BeautifulSoup(self.DeleteALLChar(AirlineManagerPage_text), 'html5lib'):
             if len(first_post_data) >= 8 and first_post_data.get('departure:hours') > 0 and \
                     first_post_data.get('departure:minutes') > 0:
                 break
-            if isinstance(unit, bs4.element.Tag):
+            if isinstance(unit, bs4_tag):
                 Recursion_GetSpecialID_A(unit)
         # 填充数据成功
         t_url = current_random + t_url
@@ -274,7 +276,7 @@ class Flight_Planning_Sub_System:
                                                   verify=local_Network_Debug, timeout=10000)
             current_random = self.getCurrentRandom(WeekPlanPage.url, WeekPlanPage.text)
 
-        def Recursion_GetSpecialID_B(root: bs4.element.Tag):
+        def Recursion_GetSpecialID_B(root: bs4_tag):
             # 获取令人厌烦的隐藏ID参数，它长这样"idXX_XX_X"
             try:
                 if root.attrs.get('action', '').endswith(t_url):
@@ -298,13 +300,58 @@ class Flight_Planning_Sub_System:
                             return
             finally:
                 for t_unit in root.children:
-                    if isinstance(t_unit, bs4.element.Tag):
+                    if isinstance(t_unit, bs4_tag):
                         Recursion_GetSpecialID_B(t_unit)
 
         for unit in BeautifulSoup(self.DeleteALLChar(WeekPlanPage.text), 'html5lib'):
-            if isinstance(unit, bs4.element.Tag):
+            if isinstance(unit, bs4_tag):
                 Recursion_GetSpecialID_B(unit)
         # 获取了周计划排班页面的特殊ID
+        # 接下来对出发时刻和到达时刻进行检查
+        check_slots = self.checkDepartureAndArrivalSlots(WeekPlanPage.text)
+        if not (check_slots.get('DepartureSlots') or check_slots.get('ArrivalSlots')):
+            second_post_data.update({'segmentSettings:0:newDeparture:hours': first_post_data['departure:hours'],
+                                     'segmentSettings:0:newDeparture:minutes': first_post_data['departure:minutes']})
+        else:
+            # 检测到时刻表异常，启动延迟解决方案
+            self.callback_printLogs('检测到航机%s有时刻表异常，正在尝试解决中。' %
+                                    self.cache_search_fleets.get(AirplaneURL, {}).get('NickName', ''))
+            t_hours = int(first_post_data['departure:hours'])
+            flag_update_hour = False  # 指示是否更新过小时了
+            t_origin_minute = int(first_post_data['departure:minutes'])
+            t_minute = t_origin_minute
+            t_url = 'IBehaviorListener.0-tabs-panel-newFlight-flightPlanning-flight.planning.form-segmentSettings-0-newDeparture-minutes'
+            t_header = {'Wicket-Ajax': 'true', 'X-Requested-With': 'XMLHttpRequest',
+                        'Wicket-Ajax-BaseURL': WeekPlanPage.url.split('/app/')[1],
+                        'Wicket-FocusedElementId':
+                            WeekPlanPage.text.split(t_url + '"')[1].split('"c":"')[1].split('"')[0]}
+            t_header.update(self.logonSession.headers.copy())
+            for i in range(5):  # 尝试5次排班后，如果时刻表仍有问题，就放弃
+                if t_minute < t_origin_minute and not flag_update_hour:
+                    t_hours = (t_hours + 1) % 24
+                    t_hour_url = 'IBehaviorListener.0-tabs-panel-newFlight-flightPlanning-flight.planning.form-segmentSettings-0-newDeparture-hours'
+                    t_hour_header = {'Wicket-Ajax': 'true', 'X-Requested-With': 'XMLHttpRequest',
+                                     'Wicket-Ajax-BaseURL': WeekPlanPage.url.split('/app/')[1],
+                                     'Wicket-FocusedElementId':
+                                         WeekPlanPage.text.split(t_hour_url + '"')[1].split('"c":"')[1].split('"')[0]}
+                    t_hour_header.update(self.logonSession.headers.copy())
+                    self.logonSession.post(current_random + t_hour_url, headers=t_hour_header,
+                                           data={'segmentSettings:0:newDeparture:hours': str(t_hours)})
+                    flag_update_hour = True
+                t_minute += 5
+                SlotsResponse = self.logonSession.post(current_random + t_url, headers=t_header,
+                                                       data={'segmentSettings:0:newDeparture:minutes': str(t_minute)})
+                # 得到的结果是XML里夹的HTML表格的一部分，被去掉了<table>标签
+                check_slots = self.checkDepartureAndArrivalSlots('<table>%s</table>' %
+                                                                 SlotsResponse.text.split(']]></component>')[0].split(
+                                                                     '><![CDATA[')[1])
+                if not (check_slots.get('DepartureSlots') or check_slots.get('ArrivalSlots')):
+                    self.callback_printLogs('航机%s时刻表异常已被解决。' %
+                                            self.cache_search_fleets.get(AirplaneURL, {}).get('NickName', ''))
+                    second_post_data.update({'segmentSettings:0:newDeparture:hours': str(t_hours),
+                                             'segmentSettings:0:newDeparture:minutes': str(t_minute)})
+                    break
+        # 无论是否解决，都要继续执行
         try:
             t_num = 0
             for boolVar in WeekPlan:
@@ -319,9 +366,7 @@ class Flight_Planning_Sub_System:
                                      'days:daySelection:2:ticked': 'on', 'days:daySelection:3:ticked': 'on',
                                      'days:daySelection:4:ticked': 'on', 'days:daySelection:5:ticked': 'on',
                                      'days:daySelection:6:ticked': 'on'})
-        second_post_data.update({'segmentSettings:0:newDeparture:hours': first_post_data['departure:hours'],
-                                 'segmentSettings:0:newDeparture:minutes': first_post_data['departure:minutes'],
-                                 'segmentsContainer:segments:0:departure-offsets:0:departureOffset': '0',
+        second_post_data.update({'segmentsContainer:segments:0:departure-offsets:0:departureOffset': '0',
                                  'segmentsContainer:segments:0:departure-offsets:1:departureOffset': '0',
                                  'segmentsContainer:segments:0:departure-offsets:2:departureOffset': '0',
                                  'segmentsContainer:segments:0:departure-offsets:3:departureOffset': '0',
@@ -339,28 +384,54 @@ class Flight_Planning_Sub_System:
                                              verify=local_Network_Debug, timeout=10000)
         # 建立了一条新航线
         return {'AirplaneURL': last_result.url, 'LastResponse': last_result,
-                'AllowAutoFlightPlan': self.checkMaintenanceRatio(last_result.text)}  # 好像可以重复调用API建立多航线
+                'AllowAutoFlightPlan': self.checkMaintenanceRatio(last_result.text),
+                'UnusableSlots': check_slots.get('DepartureSlots') or check_slots.get(
+                    'ArrivalSlots')}  # 好像可以重复调用API建立多航线
 
     def checkMaintenanceRatio(self, htmlText: str):
         """检查排班后的维护比例是否低于100%，如果低于，就发出提示（返回是否继续进行自动排班的提示）"""
         result_list = []
 
-        def Recursion_GetMaintenanceRatioInfo(root: bs4.element.Tag):
+        def Recursion_GetMaintenanceRatioInfo(root: bs4_tag):
             if root.name == 'th' and root.getText() in ('Maintenance ratio', '維護比例'):
                 t1: str = root.parent.contents[1].contents[0].getText()
                 if float(t1.replace('%', '').replace(',', '').strip()) < 100:
                     result_list.append('Warning')
                 return
             for t_unit in root:
-                if isinstance(t_unit, bs4.element.Tag):
+                if isinstance(t_unit, bs4_tag):
                     Recursion_GetMaintenanceRatioInfo(t_unit)
 
         for unit in BeautifulSoup(self.DeleteALLChar(htmlText), 'html5lib'):
-            if isinstance(unit, bs4.element.Tag):
+            if isinstance(unit, bs4_tag):
                 Recursion_GetMaintenanceRatioInfo(unit)
         if len(result_list) > 0:
             return False
         return True
+
+    def checkDepartureAndArrivalSlots(self, htmlText: str):
+        result = {'DepartureSlots': False, 'ArrivalSlots': False}
+        flag_departure = []  # 这里考虑到到达时刻排在出发时刻下边（元素顺序），所以可以采用标志判断
+
+        def Recursion_GetSlotsInfo(root: bs4_tag):
+            if root.name == 'a' and root.attrs.get('href', '').endswith('/slots'):
+                for line in root.parent.parent.contents[1:]:
+                    if 'bad' in line.contents[0].attrs.get('class'):
+                        if len(flag_departure) == 0:
+                            result['DepartureSlots'] = True
+                        else:
+                            result['ArrivalSlots'] = True
+                        break
+                flag_departure.append(1)
+                return
+            for t_unit in root.children:
+                if isinstance(t_unit, bs4_tag):
+                    Recursion_GetSlotsInfo(t_unit)
+
+        for unit in BeautifulSoup(self.DeleteALLChar(htmlText), 'html5lib'):
+            if isinstance(unit, bs4_tag):
+                Recursion_GetSlotsInfo(unit)
+        return result
 
     def CommitFlightPlan(self, AirplaneURL: str, UserSelect: int = 1, LastResponse: Response = None):
         """
@@ -382,20 +453,20 @@ class Flight_Planning_Sub_System:
         t_url = 'IFormSubmitListener-tabs-panel-visualFlightPlan-action'
         post_data = {'select': str(UserSelect)}
 
-        def Recursion_GetSpecialID(root: bs4.element.Tag):
+        def Recursion_GetSpecialID(root: bs4_tag):
             if root.name == 'form' and root.attrs.get('action', '').endswith(t_url):
                 post_data[root.contents[0].contents[0].attrs.get('name')] = ''
                 return
             for t_unit in root:
                 if len(post_data) >= 2:
                     return
-                if isinstance(t_unit, bs4.element.Tag):
+                if isinstance(t_unit, bs4_tag):
                     Recursion_GetSpecialID(t_unit)
 
         for unit in BeautifulSoup(self.DeleteALLChar(FlightPlanPage.text), 'html5lib'):
             if len(post_data) >= 2:
                 break
-            if isinstance(unit, bs4.element.Tag):
+            if isinstance(unit, bs4_tag):
                 Recursion_GetSpecialID(unit)
         t_url = current_random + t_url
         self.logonSession.post(t_url, data=post_data, verify=local_Network_Debug, timeout=10000)
@@ -530,18 +601,27 @@ class Flight_Planning_Sub_System:
         t1 = self.BuildNewAirlinePlan(AirplaneURL, configList[0].get('Src'), configList[0].get('Dst'),
                                       configList[0].get('Price'), configList[0].get('Service'),
                                       configList[0].get('Hour'), configList[0].get('Minute'))
+        flag_unusable_slots = False
         for line in configList[1:]:
             if not t1.get('AllowAutoFlightPlan'):
+                self.callback_printLogs('由于触发了低维护比规则，已对航机%s终止排程。' %
+                                        self.cache_search_fleets.get(AirplaneURL, {}).get('NickName', ''))
                 break
-            t1 = self.BuildNewAirlinePlan('', line.get('Src'), line.get('Dst'), line.get('Price'),
+            if t1.get('UnusableSlots'):
+                flag_unusable_slots = True
+                self.callback_printLogs('航班%s有时刻表异常，无法解决。' %
+                                        self.cache_search_fleets.get(AirplaneURL, {}).get('NickName', ''))
+            t1 = self.BuildNewAirlinePlan(AirplaneURL, line.get('Src'), line.get('Dst'), line.get('Price'),
                                           line.get('Service'), line.get('Hour'), line.get('Minute'),
                                           LastResponse=t1.get('LastResponse'))
-        if t1.get('AllowAutoFlightPlan'):
+        if t1.get('AllowAutoFlightPlan') and not flag_unusable_slots:
             if delayExecute:
                 user_commit = 2
             else:
                 user_commit = 1
             self.CommitFlightPlan('', user_commit, t1.get('LastResponse'))
+            self.callback_printLogs('航机%s排程已正常结束，并提交执行。' %
+                                    self.cache_search_fleets.get(AirplaneURL, {}).get('NickName', ''))
 
     def Experimental_MakeFlightPlanConfig(self, FlightPath: str, ServiceList: list, PriceList: list,
                                           FirstDepartureTime: str):
@@ -563,7 +643,10 @@ class Flight_Planning_Sub_System:
                                                     ServiceList[airportID % len(ServiceList)]))
         return result
 
-    @staticmethod
-    def example_askQuestion(question: str):
+    def callback_askQuestion(self, question: str):
         # 一个示例的询问函数
         return input(question)
+
+    def callback_printLogs(self, log: str):
+        # 一个示例的日志输出函数
+        print(log)
