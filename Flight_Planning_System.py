@@ -335,10 +335,12 @@ class Flight_Planning_Sub_System:
                                          WeekPlanPage.text.split(t_hour_url + '"')[1].split('"c":"')[1].split('"')[0]}
                     t_hour_header.update(self.logonSession.headers.copy())
                     self.logonSession.post(current_random + t_hour_url, headers=t_hour_header,
-                                           data={'segmentSettings:0:newDeparture:hours': str(t_hours)})
+                                           data={'segmentSettings:0:newDeparture:hours': str(t_hours)},
+                                           verify=local_Network_Debug)
                     flag_update_hour = True
                 t_minute += 5
                 SlotsResponse = self.logonSession.post(current_random + t_url, headers=t_header,
+                                                       verify=local_Network_Debug,
                                                        data={'segmentSettings:0:newDeparture:minutes': str(t_minute)})
                 # 得到的结果是XML里夹的HTML表格的一部分，被去掉了<table>标签
                 check_slots = self.checkDepartureAndArrivalSlots('<table>%s</table>' %
