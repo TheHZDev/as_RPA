@@ -2,7 +2,7 @@
 
 本项目实现了基于Python3和HTTP交互的AS自动排程。
 
-在使用本项目前，您可能需要先安装 [Python3](https://www.python.org/downloads/release/python-397/) 环境。  
+在使用本项目前，您可能需要先安装Python3环境。  
 以及使用pip安装以下的包：
 
 ```shell
