@@ -309,10 +309,9 @@ class Flight_Planning_Sub_System:
         # 获取了周计划排班页面的特殊ID
         # 接下来对出发时刻和到达时刻进行检查
         check_slots = self.checkDepartureAndArrivalSlots(WeekPlanPage.text)
-        if not (check_slots.get('DepartureSlots') or check_slots.get('ArrivalSlots')):
-            second_post_data.update({'segmentSettings:0:newDeparture:hours': first_post_data['departure:hours'],
-                                     'segmentSettings:0:newDeparture:minutes': first_post_data['departure:minutes']})
-        else:
+        second_post_data.update({'segmentSettings:0:newDeparture:hours': first_post_data['departure:hours'],
+                                 'segmentSettings:0:newDeparture:minutes': first_post_data['departure:minutes']})
+        if check_slots.get('DepartureSlots') or check_slots.get('ArrivalSlots'):
             # 检测到时刻表异常，启动延迟解决方案
             self.callback_printLogs('检测到航机%s有时刻表异常，正在尝试解决中。' %
                                     self.cache_search_fleets.get(AirplaneURL, {}).get('NickName', ''))
@@ -609,8 +608,9 @@ class Flight_Planning_Sub_System:
                 break
             if t1.get('UnusableSlots'):
                 flag_unusable_slots = True
-                self.callback_printLogs('航班%s有时刻表异常，无法解决。' %
-                                        self.cache_search_fleets.get(AirplaneURL, {}).get('NickName', ''))
+                self.callback_printLogs('航班%s在排程%s到%s遇到了时刻表异常，无法解决。' % (
+                    self.cache_search_fleets.get(AirplaneURL, {}).get('NickName', ''),
+                    line.get('Src'), line.get('Dst')))
             t1 = self.BuildNewAirlinePlan(AirplaneURL, line.get('Src'), line.get('Dst'), line.get('Price'),
                                           line.get('Service'), line.get('Hour'), line.get('Minute'),
                                           LastResponse=t1.get('LastResponse'))
