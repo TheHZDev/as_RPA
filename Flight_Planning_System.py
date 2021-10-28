@@ -5,8 +5,8 @@ from bs4 import BeautifulSoup
 from bs4.element import Tag as bs4_tag
 from requests import Session, Response
 
-local_Network_Debug = False
-local_Network_Debug = not local_Network_Debug
+flag_Debug = False
+local_Network_Debug = not flag_Debug
 
 
 class Flight_Planning_Sub_System:
@@ -315,10 +315,14 @@ class Flight_Planning_Sub_System:
             # 检测到时刻表异常，启动延迟解决方案
             self.callback_printLogs('检测到航机%s有时刻表异常，正在尝试解决中。' %
                                     self.cache_search_fleets.get(AirplaneURL, {}).get('NickName', ''))
+            # 调试信息
+            if DepartHour == -1 and DepartMinute == -1:
+                self.callback_printLogs('DEBUG: 系统推荐时间为 %d:%d。' % (int(first_post_data['departure:hours']),
+                                                                   int(first_post_data['departure:minutes'])))
             t_hours = int(first_post_data['departure:hours'])
             flag_update_hour = False  # 指示是否更新过小时了
             t_origin_minute = int(first_post_data['departure:minutes'])
-            t_minute = t_origin_minute
+            t_minute = (t_origin_minute + 5) % 60
             t_url = 'IBehaviorListener.0-tabs-panel-newFlight-flightPlanning-flight.planning.form-segmentSettings-0-newDeparture-minutes'
             t_header = {'Wicket-Ajax': 'true', 'X-Requested-With': 'XMLHttpRequest',
                         'Wicket-Ajax-BaseURL': WeekPlanPage.url.split('/app/')[1],
@@ -338,7 +342,6 @@ class Flight_Planning_Sub_System:
                                            data={'segmentSettings:0:newDeparture:hours': str(t_hours)},
                                            verify=local_Network_Debug)
                     flag_update_hour = True
-                t_minute += 5
                 SlotsResponse = self.logonSession.post(current_random + t_url, headers=t_header,
                                                        verify=local_Network_Debug,
                                                        data={'segmentSettings:0:newDeparture:minutes': str(t_minute)})
@@ -352,6 +355,7 @@ class Flight_Planning_Sub_System:
                     second_post_data.update({'segmentSettings:0:newDeparture:hours': str(t_hours),
                                              'segmentSettings:0:newDeparture:minutes': str(t_minute)})
                     break
+                t_minute = (t_minute + 5) % 60
         # 无论是否解决，都要继续执行
         try:
             t_num = 0
@@ -602,21 +606,26 @@ class Flight_Planning_Sub_System:
         t1 = self.BuildNewAirlinePlan(AirplaneURL, configList[0].get('Src'), configList[0].get('Dst'),
                                       configList[0].get('Price'), configList[0].get('Service'),
                                       configList[0].get('Hour'), configList[0].get('Minute'))
-        flag_unusable_slots = False
-        for line in configList[1:]:
+        if len(configList) != len(self.cache_search_fleets):
+            self.callback_printLogs('DEBUG：配置数量与需要排程的航机数量不一致！')
+        fleet_length = min(len(configList), len(self.cache_search_fleets))
+        for line in configList[1:fleet_length]:
             if not t1.get('AllowAutoFlightPlan'):
                 self.callback_printLogs('由于触发了低维护比规则，已对航机%s终止排程。' %
                                         self.cache_search_fleets.get(AirplaneURL, {}).get('NickName', ''))
                 break
             if t1.get('UnusableSlots'):
-                flag_unusable_slots = True
                 self.callback_printLogs('航班%s在排程%s到%s遇到了时刻表异常，无法解决。' % (
                     self.cache_search_fleets.get(AirplaneURL, {}).get('NickName', ''),
                     line.get('Src'), line.get('Dst')))
             t1 = self.BuildNewAirlinePlan(AirplaneURL, line.get('Src'), line.get('Dst'), line.get('Price'),
                                           line.get('Service'), line.get('Hour'), line.get('Minute'),
                                           LastResponse=t1.get('LastResponse'))
-        if t1.get('AllowAutoFlightPlan') and not flag_unusable_slots:
+        if t1.get('UnusableSlots'):
+            self.callback_printLogs('航班%s在排程%s到%s遇到了时刻表异常，无法解决。' % (
+                self.cache_search_fleets.get(AirplaneURL, {}).get('NickName', ''),
+                configList[fleet_length - 1].get('Src'), configList[fleet_length - 1].get('Dst')))
+        elif t1.get('AllowAutoFlightPlan'):
             if delayExecute:
                 user_commit = 2
             else:
