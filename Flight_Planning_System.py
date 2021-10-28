@@ -606,10 +606,7 @@ class Flight_Planning_Sub_System:
         t1 = self.BuildNewAirlinePlan(AirplaneURL, configList[0].get('Src'), configList[0].get('Dst'),
                                       configList[0].get('Price'), configList[0].get('Service'),
                                       configList[0].get('Hour'), configList[0].get('Minute'))
-        if len(configList) != len(self.cache_search_fleets):
-            self.callback_printLogs('DEBUG：配置数量与需要排程的航机数量不一致！')
-        fleet_length = min(len(configList), len(self.cache_search_fleets))
-        for line in configList[1:fleet_length]:
+        for line in configList[1:]:
             if not t1.get('AllowAutoFlightPlan'):
                 self.callback_printLogs('由于触发了低维护比规则，已对航机%s终止排程。' %
                                         self.cache_search_fleets.get(AirplaneURL, {}).get('NickName', ''))
@@ -624,7 +621,7 @@ class Flight_Planning_Sub_System:
         if t1.get('UnusableSlots'):
             self.callback_printLogs('航班%s在排程%s到%s遇到了时刻表异常，无法解决。' % (
                 self.cache_search_fleets.get(AirplaneURL, {}).get('NickName', ''),
-                configList[fleet_length - 1].get('Src'), configList[fleet_length - 1].get('Dst')))
+                configList[-1].get('Src'), configList[-1].get('Dst')))
         elif t1.get('AllowAutoFlightPlan'):
             if delayExecute:
                 user_commit = 2
