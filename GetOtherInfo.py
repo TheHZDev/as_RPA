@@ -393,6 +393,7 @@ class CalcAirplaneProperty:
         return result_list
 
 # if __name__ == '__main__':
+#     from time import sleep
 #     calcService = CalcAirplaneProperty('Otto', input('Username of Otto:'), input('Password of Otto'))
 #     calcService.getAirplaneInfoIndex()
 #     while len(calcService.cache_CountryIndex) > 0:

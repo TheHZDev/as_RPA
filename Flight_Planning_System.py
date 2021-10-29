@@ -1,3 +1,4 @@
+from time import sleep
 from typing import Tuple
 from urllib.parse import urlparse
 
@@ -7,6 +8,7 @@ from requests import Session, Response
 
 flag_Debug = False
 local_Network_Debug = not flag_Debug
+sleep_secs = 5
 
 
 class Flight_Planning_Sub_System:
@@ -151,7 +153,8 @@ class Flight_Planning_Sub_System:
     def BuildNewAirlinePlan(self, AirplaneURL: str, SrcAirport: str, DstAirport: str,
                             Price: int, Service: str, DepartHour: int = -1, DepartMinute: int = -1,
                             WeekPlan: Tuple[bool, bool, bool, bool, bool, bool, bool] =
-                            (True, True, True, True, True, True, True), LastResponse: Response = None):
+                            (True, True, True, True, True, True, True), SrcTerminal: str = 'T1',
+                            DstTerminal: str = 'T1', LastResponse: Response = None):
         """
         使用给定的参数建立一个新航班，航班号采用随机生成（暂不支持航班中转）
         :param AirplaneURL: 要管理的机队的URL
@@ -162,6 +165,8 @@ class Flight_Planning_Sub_System:
         :param WeekPlan: 周计划排班，都选True就是一周全排
         :param Price: 价格系数，实际上是个百分比，如110 <=> 110%
         :param Service: 服务系数，请使用其它函数生成该数值
+        :param SrcTerminal: 出发机场航站楼。写T2即代表选中T2
+        :param DstTerminal: 目的机场航站楼，写T2即代表选中T2
         :param LastResponse: 上次的响应，这是一个内部调用，请勿使用
         """
         # 函数操作：
@@ -267,7 +272,7 @@ class Flight_Planning_Sub_System:
         WeekPlanPage = self.logonSession.post(t_url, data=first_post_data, verify=local_Network_Debug, timeout=10000)
         self.logonSession.headers['Referer'] = WeekPlanPage.url
         current_random = self.getCurrentRandom(WeekPlanPage.url, WeekPlanPage.text)
-        second_post_data = {}
+        second_post_data = {'segmentSettings:0:originTerminal': '', 'segmentSettings:0:destinationTerminal': ''}
         t_url = 'IFormSubmitListener-tabs-panel-newFlight-flightPlanning-flight.planning.form'
         # 迷惑大赏环节，我自己也不知道这bug什么鬼
         if t_url not in WeekPlanPage.text:
@@ -286,16 +291,17 @@ class Flight_Planning_Sub_System:
                 if root.attrs.get('name', '') == 'button-submit':  # 提取特定文字
                     second_post_data['button-submit'] = root.attrs.get('value')
                     return
-                if root.attrs.get('name', '') == 'segmentSettings:0:originTerminal':
+                if root.attrs.get('name', '') == 'segmentSettings:0:originTerminal' and SrcTerminal not in ('T1', ''):
                     # 出发航站楼
                     for t_unit in root.children:
-                        if t_unit.attrs.get('selected', '') == 'selected':
+                        if t_unit.getText().startswith(SrcTerminal.upper()):
                             second_post_data['segmentSettings:0:originTerminal'] = t_unit.attrs.get('value')
                             return
-                if root.attrs.get('name', '') == 'segmentSettings:0:destinationTerminal':
+                if root.attrs.get('name', '') == 'segmentSettings:0:destinationTerminal' and \
+                        DstTerminal not in ('T1', ''):
                     # 到达航站楼
                     for t_unit in root.children:
-                        if t_unit.attrs.get('selected', '') == 'selected':
+                        if t_unit.getText().startswith(DstTerminal.upper()):
                             second_post_data['segmentSettings:0:destinationTerminal'] = t_unit.attrs.get('value')
                             return
             finally:
@@ -319,6 +325,8 @@ class Flight_Planning_Sub_System:
             if DepartHour == -1 and DepartMinute == -1:
                 self.callback_printLogs('DEBUG: 系统推荐时间为 %d:%d。' % (int(first_post_data['departure:hours']),
                                                                    int(first_post_data['departure:minutes'])))
+            else:
+                self.callback_printLogs('DEBUG: 玩家设定时间为 %d:%d。' % (DepartHour, DepartMinute))
             t_hours = int(first_post_data['departure:hours'])
             flag_update_hour = False  # 指示是否更新过小时了
             t_origin_minute = int(first_post_data['departure:minutes'])
@@ -342,6 +350,7 @@ class Flight_Planning_Sub_System:
                                            data={'segmentSettings:0:newDeparture:hours': str(t_hours)},
                                            verify=local_Network_Debug)
                     flag_update_hour = True
+                    sleep(sleep_secs)
                 SlotsResponse = self.logonSession.post(current_random + t_url, headers=t_header,
                                                        verify=local_Network_Debug,
                                                        data={'segmentSettings:0:newDeparture:minutes': str(t_minute)})
@@ -356,6 +365,7 @@ class Flight_Planning_Sub_System:
                                              'segmentSettings:0:newDeparture:minutes': str(t_minute)})
                     break
                 t_minute = (t_minute + 5) % 60
+                sleep(sleep_secs)
         # 无论是否解决，都要继续执行
         try:
             t_num = 0
@@ -534,7 +544,7 @@ class Flight_Planning_Sub_System:
 
     # UI友好函数
     def MakeSingleFlightPlan(self, SrcAirport: str, DstAirport: str, Price: int, Service: str,
-                             callback_AskQuestion=None, DepartureTime: str = ''):
+                             callback_AskQuestion=None, DepartureTime: str = '', TerminalConfig: list = []):
         """
         根据更通俗易懂的描述转换为程序设置
         :param SrcAirport: 出发机场，可以输入机场的三字母简称或全称（全称是AS上的机场全名）
@@ -594,7 +604,8 @@ class Flight_Planning_Sub_System:
             except ValueError:
                 raise Exception('请输入正确的时间数字，不要夹带字母等非数字！')
         return {'Src': SrcAirport, 'Dst': DstAirport, 'Price': Price, 'Service': Service,
-                'Hour': DepartureHour, 'Minute': DepartureMinute}
+                'Hour': DepartureHour, 'Minute': DepartureMinute, 'SrcTerminal': TerminalConfig[0],
+                'DstTerminal': TerminalConfig[1]}
 
     def UI_AutoMakeFlightPlan(self, AirplaneURL: str, configList: list, delayExecute: bool = False):
         """
@@ -605,7 +616,9 @@ class Flight_Planning_Sub_System:
         """
         t1 = self.BuildNewAirlinePlan(AirplaneURL, configList[0].get('Src'), configList[0].get('Dst'),
                                       configList[0].get('Price'), configList[0].get('Service'),
-                                      configList[0].get('Hour'), configList[0].get('Minute'))
+                                      configList[0].get('Hour'), configList[0].get('Minute'),
+                                      SrcTerminal=configList[0].get('SrcTerminal'),
+                                      DstTerminal=configList[0].get('DstTerminal'))
         for line in configList[1:]:
             if not t1.get('AllowAutoFlightPlan'):
                 self.callback_printLogs('由于触发了低维护比规则，已对航机%s终止排程。' %
@@ -617,6 +630,7 @@ class Flight_Planning_Sub_System:
                     line.get('Src'), line.get('Dst')))
             t1 = self.BuildNewAirlinePlan(AirplaneURL, line.get('Src'), line.get('Dst'), line.get('Price'),
                                           line.get('Service'), line.get('Hour'), line.get('Minute'),
+                                          SrcTerminal=line.get('SrcTerminal'), DstTerminal=line.get('DstTerminal'),
                                           LastResponse=t1.get('LastResponse'))
         if t1.get('UnusableSlots'):
             self.callback_printLogs('航班%s在排程%s到%s遇到了时刻表异常，无法解决。' % (
@@ -632,7 +646,7 @@ class Flight_Planning_Sub_System:
                                     self.cache_search_fleets.get(AirplaneURL, {}).get('NickName', ''))
 
     def Experimental_MakeFlightPlanConfig(self, FlightPath: str, ServiceList: list, PriceList: list,
-                                          FirstDepartureTime: str):
+                                          FirstDepartureTime: str, TerminalConfig: list = []):
         """
         警告：该函数为实验性函数，由此产生的任何非预期结果不对此负任何责任。
         从更通俗易懂的航线，可循环使用的服务列表次序和价格次序中生成设置。
@@ -640,15 +654,25 @@ class Flight_Planning_Sub_System:
         :param ServiceList: 服务名称列表，请确保您输入了正确的名称，否则重置为Standard
         :param PriceList: 价格列表，里面必须全都是数字，否则重置为100
         :param FirstDepartureTime: 第一次的起飞时间，若起飞时间为10点36分，请输入10:36
+        :param TerminalConfig: 航站楼参数，请使用如下形式[('T2', 'T2')]，可输入航站楼全称或规范化简称
         :return: 设置块，可直接填入UI_AutoMakeFlightPlan函数
         """
+
+        def getTerminalUnit(id: int):
+            if isinstance(TerminalConfig, list) and len(TerminalConfig) > id:
+                if isinstance(TerminalConfig[id], tuple) and len(TerminalConfig[id]) == 2:
+                    if isinstance(TerminalConfig[id][0], str) and isinstance(TerminalConfig[id][1], str):
+                        return TerminalConfig[id]
+            return 'T1', 'T1'
+
         FlightPath = FlightPath.split('-')
         result = [self.MakeSingleFlightPlan(FlightPath[0], FlightPath[1], PriceList[0], ServiceList[0],
-                                            DepartureTime=FirstDepartureTime)]
+                                            DepartureTime=FirstDepartureTime, TerminalConfig=getTerminalUnit(0))]
         for airportID in range(1, len(FlightPath) - 1):
             result.append(self.MakeSingleFlightPlan(FlightPath[airportID], FlightPath[airportID + 1],
                                                     PriceList[airportID % len(PriceList)],
-                                                    ServiceList[airportID % len(ServiceList)]))
+                                                    ServiceList[airportID % len(ServiceList)],
+                                                    TerminalConfig=getTerminalUnit(airportID)))
         return result
 
     def callback_askQuestion(self, question: str):
