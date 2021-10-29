@@ -1,4 +1,3 @@
-from time import sleep
 from typing import Tuple
 from urllib.parse import urlparse
 
@@ -8,7 +7,6 @@ from requests import Session, Response
 
 flag_Debug = False
 local_Network_Debug = not flag_Debug
-sleep_secs = 5
 
 
 class Flight_Planning_Sub_System:
@@ -33,8 +31,8 @@ class Flight_Planning_Sub_System:
         # 一些初始化
         self.SearchInfoIntelligently()
 
-    def __del__(self):
-        # 程序结束后调用析构函数以关闭AirlineSim会话
+    def close(self):
+        """请使用该函数注销AirlineSim会话"""
         target_url = 'https://sar.simulogics.games/api/sessions/' + \
                      self.logonSession.cookies.get('as-sid').split('_')[0]
         self.logonSession.delete(target_url)
@@ -323,10 +321,10 @@ class Flight_Planning_Sub_System:
                                     self.cache_search_fleets.get(AirplaneURL, {}).get('NickName', ''))
             # 调试信息
             if DepartHour == -1 and DepartMinute == -1:
-                self.callback_printLogs('DEBUG: 系统推荐时间为 %d:%d。' % (int(first_post_data['departure:hours']),
-                                                                   int(first_post_data['departure:minutes'])))
+                self.callback_printLogs('DEBUG: 系统推荐时间为 %d: %.2d。' % (int(first_post_data['departure:hours']),
+                                                                      int(first_post_data['departure:minutes'])))
             else:
-                self.callback_printLogs('DEBUG: 玩家设定时间为 %d:%d。' % (DepartHour, DepartMinute))
+                self.callback_printLogs('DEBUG: 玩家设定时间为 %d: %.2d。' % (DepartHour, DepartMinute))
             t_hours = int(first_post_data['departure:hours'])
             flag_update_hour = False  # 指示是否更新过小时了
             t_origin_minute = int(first_post_data['departure:minutes'])
@@ -338,7 +336,8 @@ class Flight_Planning_Sub_System:
                             WeekPlanPage.text.split(t_url + '"')[1].split('"c":"')[1].split('"')[0]}
             t_header.update(self.logonSession.headers.copy())
             for i in range(5):  # 尝试5次排班后，如果时刻表仍有问题，就放弃
-                if t_minute < t_origin_minute and not flag_update_hour:
+                self.callback_printLogs('正在进行第 %d 次尝试，尝试时间为 %d: %.2d。' % (i + 1, t_hours, t_minute))
+                if t_minute <= t_origin_minute and not flag_update_hour:
                     t_hours = (t_hours + 1) % 24
                     t_hour_url = 'IBehaviorListener.0-tabs-panel-newFlight-flightPlanning-flight.planning.form-segmentSettings-0-newDeparture-hours'
                     t_hour_header = {'Wicket-Ajax': 'true', 'X-Requested-With': 'XMLHttpRequest',
@@ -350,7 +349,6 @@ class Flight_Planning_Sub_System:
                                            data={'segmentSettings:0:newDeparture:hours': str(t_hours)},
                                            verify=local_Network_Debug)
                     flag_update_hour = True
-                    sleep(sleep_secs)
                 SlotsResponse = self.logonSession.post(current_random + t_url, headers=t_header,
                                                        verify=local_Network_Debug,
                                                        data={'segmentSettings:0:newDeparture:minutes': str(t_minute)})
@@ -365,7 +363,6 @@ class Flight_Planning_Sub_System:
                                              'segmentSettings:0:newDeparture:minutes': str(t_minute)})
                     break
                 t_minute = (t_minute + 5) % 60
-                sleep(sleep_secs)
         # 无论是否解决，都要继续执行
         try:
             t_num = 0
@@ -395,6 +392,7 @@ class Flight_Planning_Sub_System:
                                  'segmentsContainer:segments:0:speed-overrides:4:speedOverride': '',
                                  'segmentsContainer:segments:0:speed-overrides:5:speedOverride': '',
                                  'segmentsContainer:segments:0:speed-overrides:6:speedOverride': ''})
+        t_url = 'IFormSubmitListener-tabs-panel-newFlight-flightPlanning-flight.planning.form'
         last_result = self.logonSession.post(current_random + t_url, data=second_post_data,
                                              verify=local_Network_Debug, timeout=10000)
         # 建立了一条新航线
@@ -643,6 +641,9 @@ class Flight_Planning_Sub_System:
                 user_commit = 1
             self.CommitFlightPlan('', user_commit, t1.get('LastResponse'))
             self.callback_printLogs('航机%s排程已正常结束，并提交执行。' %
+                                    self.cache_search_fleets.get(AirplaneURL, {}).get('NickName', ''))
+        else:
+            self.callback_printLogs('低维护比警告！航机%s排程已正常结束，但未被执行。' %
                                     self.cache_search_fleets.get(AirplaneURL, {}).get('NickName', ''))
 
     def Experimental_MakeFlightPlanConfig(self, FlightPath: str, ServiceList: list, PriceList: list,
