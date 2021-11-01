@@ -152,3 +152,5 @@ print('企业名称\t\t\t资产数额')
 for line in CalcService.CalcBalanceSheet():
   print('%s\t\t\t%.2f' % (line[0], line[1] / 1000))
 ```
+如果您知悉航机数据表有更新，请删除生成的数据库文件（.sqlite）以降低程序出错概率。  
+多线程抓取信息的时候有可能会卡住，请在网络状况良好时再尝试。

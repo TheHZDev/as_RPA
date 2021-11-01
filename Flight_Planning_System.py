@@ -16,6 +16,7 @@ class Flight_Planning_Sub_System:
     cache_AirportInfo = {}
     cache_ServiceInfo = {}
     cache_search_fleets = {}
+    default_service_name = ''
 
     def __init__(self, logonSession: Session, ServerName: str, callback_raiseException=None):
         """
@@ -124,6 +125,8 @@ class Flight_Planning_Sub_System:
                     for option in root.children:
                         if len(option.attrs.get('value', '')) > 0:
                             self.cache_ServiceInfo[option.getText()] = option.attrs.get('value')
+                            # 这里安排了一个循环赋值，以使默认服务方案名为最后的
+                            self.default_service_name = option.getText()
                 return
             for unit_1 in root.children:
                 if isinstance(unit_1, bs4_tag):
@@ -586,9 +589,9 @@ class Flight_Planning_Sub_System:
                             Service = unit
                             break
                 if Service not in self.cache_ServiceInfo.keys():
-                    Service = 'Standard'
+                    Service = self.default_service_name
             else:
-                Service = 'Standard'
+                Service = self.default_service_name
         DepartureHour = -1
         DepartureMinute = -1
         if isinstance(DepartureTime, str) and len(DepartureTime) > 0:
