@@ -519,7 +519,8 @@ class getAirportInfo:
                     t_dict["Runway"] = int(root.parent.contents[1].getText().replace(',', '').replace('m', '').strip())
                 elif root.getText() in ('機場大小', 'Airport size'):
                     t_dict["Airport_Size"] = root.parent.contents[1].getText()
-                elif root.getText() in ('時間帶數 (每五分鐘)', 'Slots (per 5 minutes)'):
+                # elif root.getText() in ('時間帶數 (每五分鐘)', 'Slots (per 5 minutes)'):
+                elif 'Slots (per 5 minutes)' in root.getText() or '時間帶數 (每五分鐘)' in root.getText():
                     t_dict["Slots_per_five_minutes"] = int(root.parent.contents[1].getText())
                 elif root.getText() in ('可用時間帶', 'Slot Availability'):
                     t_dict["Slot_Availability"] = int(root.parent.contents[1].getText().replace('%', '')) / 100
