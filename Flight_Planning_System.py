@@ -545,7 +545,7 @@ class Flight_Planning_Sub_System:
 
     # UI友好函数
     def MakeSingleFlightPlan(self, SrcAirport: str, DstAirport: str, Price: int, Service: str,
-                             callback_AskQuestion=None, DepartureTime: str = '', TerminalConfig: list = []):
+                             callback_AskQuestion=None, DepartureTime: str = '', TerminalConfig: tuple = ('T1', 'T1')):
         """
         根据更通俗易懂的描述转换为程序设置
         :param SrcAirport: 出发机场，可以输入机场的三字母简称或全称（全称是AS上的机场全名）
@@ -554,6 +554,7 @@ class Flight_Planning_Sub_System:
         :param Service: 服务系数，您应当输入在AS中明确定义的服务方案名称，否则将使用默认值Standard
         :param DepartureTime: 出发时间，当您希望在UTC时间20点35分起飞的时候，请输入20:35，若您想使用系统推荐时间，请放空
         :param callback_AskQuestion: 回调函数，用于输入问题并获得用户响应
+        :param TerminalConfig: 航站楼参数，选择出发和目的地的航站楼
         :return: 一个字典，包含了函数的各种信息
         """
         if SrcAirport not in self.cache_AirportInfo.keys():

@@ -7,6 +7,7 @@ from bs4 import BeautifulSoup
 from bs4.element import Tag as bs4_Tag
 
 max_thread_workers = 5
+basic_header = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:93.0) Gecko/20100101 Firefox/93.0'}
 
 
 def retry_request(url: str, timeout: int = 60, retry_cooldown=5, retry_times=3, data=None):
@@ -25,13 +26,21 @@ def retry_request(url: str, timeout: int = 60, retry_cooldown=5, retry_times=3, 
     for i in range(retry_times):
         try:
             if data is None:
-                return requests.get(url, timeout=timeout)
+                return requests.get(url, timeout=timeout, headers=basic_header)
             else:
-                return requests.post(url, data=data, timeout=timeout)
+                return requests.post(url, data=data, timeout=timeout, headers=basic_header)
         except requests.exceptions.ConnectTimeout:
             print('连接出错，将在 %d 秒后再次重试。' % retry_cooldown)
             sleep(retry_cooldown)
     return requests.Response()
+
+
+def DeleteALLChar(html_str: str) -> str:
+    # 这仅仅是使得解析器解析时不会再碰到多余的空格
+    html_str = html_str.replace('\t', '').replace('\r', '').replace('\n', '')  # 去除常见的大空格和换行
+    while '  ' in html_str:  # 双空格合并为一个空格
+        html_str = html_str.replace('  ', ' ')
+    return html_str.replace('> <', '><')  # 去除标签之间的空格
 
 
 class CalcAirplaneProperty:
@@ -136,7 +145,7 @@ class CalcAirplaneProperty:
                 if isinstance(t_unit, bs4_Tag):
                     Recursion_GetAllCountryID(t_unit)
 
-        for unit in BeautifulSoup(self.DeleteALLChar(retry_request(first_url).text), 'html5lib'):
+        for unit in BeautifulSoup(DeleteALLChar(retry_request(first_url).text), 'html5lib'):
             if len(self.cache_CountryIndex) > 0:
                 break
             if isinstance(unit, bs4_Tag):
@@ -195,7 +204,7 @@ class CalcAirplaneProperty:
                 if isinstance(t_unit, bs4_Tag):
                     Recursion_GetAirplaneInfo(t_unit)
 
-        for unit in BeautifulSoup(self.DeleteALLChar(retry_request(target_url).text), 'html5lib'):
+        for unit in BeautifulSoup(DeleteALLChar(retry_request(target_url).text), 'html5lib'):
             if isinstance(unit, bs4_Tag):
                 Recursion_GetAirplaneInfo(unit)
         self.callback_outputLog('对国家 %s 的信息抓取完成。' % result_text[0])
@@ -228,7 +237,7 @@ class CalcAirplaneProperty:
                 if isinstance(t_unit, bs4_Tag):
                     Recursion_GetAirCompanyInfo(t_unit)
 
-        for unit in BeautifulSoup(self.DeleteALLChar(retry_request(target_url).text), 'html5lib'):
+        for unit in BeautifulSoup(DeleteALLChar(retry_request(target_url).text), 'html5lib'):
             if isinstance(unit, bs4_Tag):
                 Recursion_GetAirCompanyInfo(unit)
         self.callback_outputLog('对公司 %s 的信息抓取完成。' % result_text[0])
@@ -256,7 +265,7 @@ class CalcAirplaneProperty:
                     if isinstance(t_unit, bs4_Tag):
                         Recursion_GetAllAirplaneFamilyInfo(t_unit)
 
-            for unit in BeautifulSoup(self.DeleteALLChar(logonSession.get(first_url).text), 'html5lib'):
+            for unit in BeautifulSoup(DeleteALLChar(logonSession.get(first_url).text), 'html5lib'):
                 if isinstance(unit, bs4_Tag):
                     Recursion_GetAllAirplaneFamilyInfo(unit)
             # 抓取了所有航班家族的数据
@@ -287,7 +296,7 @@ class CalcAirplaneProperty:
                         Recursion_GetSingleFamilyAirplaneInfo(t_unit)
 
             for line in second_url_list.keys():
-                for unit in BeautifulSoup(self.DeleteALLChar(logonSession.get(second_url_list.get(line)).text),
+                for unit in BeautifulSoup(DeleteALLChar(logonSession.get(second_url_list.get(line)).text),
                                           'html5lib'):
                     if isinstance(unit, bs4_Tag):
                         Recursion_GetSingleFamilyAirplaneInfo(unit)
@@ -295,14 +304,6 @@ class CalcAirplaneProperty:
                 self.callback_outputLog('已完成对航机 %s 家族的爬取。' % line)
             t_sql.close()
         self.flag_price_ok = True
-
-    @staticmethod
-    def DeleteALLChar(html_str: str) -> str:
-        # 这仅仅是使得解析器解析时不会再碰到多余的空格
-        html_str = html_str.replace('\t', '').replace('\r', '').replace('\n', '')  # 去除常见的大空格和换行
-        while '  ' in html_str:  # 双空格合并为一个空格
-            html_str = html_str.replace('  ', ' ')
-        return html_str.replace('> <', '><')  # 去除标签之间的空格
 
     @staticmethod
     def AnalyzeCabinModel(CabinStr: str):
@@ -421,3 +422,120 @@ class CalcAirplaneProperty:
         result_list.sort(key=cmp_to_key(_cmp), reverse=DescSorted)
         self.callback_outputLog('计算资产中......数据已按照资产数额排列完成！')
         return result_list
+
+
+class getAirportInfo:
+    flag_finish = []
+
+    def __init__(self, ServerName: str):
+        """
+        一个用来抓取机场信息的小工具，没有任何其他的计算功能
+        :param ServerName: 服务器名称
+        """
+        from LoginAirlineSim import ServerMap, getBaseURL
+        from urllib.parse import urlparse
+        if ServerName not in ServerMap.keys():
+            raise Exception('无效的服务器名称。')
+        self.baseURL = 'https://' + urlparse(getBaseURL(ServerName)).netloc + '/app/info/airports/'
+        self.errorURL = '/action/user/invalidParameter'  # URL后缀
+        self.DBPath = ServerName + '.sqlite'
+        self.DB_Init()
+        for i in range(1, max_thread_workers + 1):
+            Thread(target=self.thread_getAirportInfo, args=(i,)).start()
+
+    def DB_Init(self):
+        create_sql = """
+        CREATE TABLE IF NOT EXISTS AirportInfo(
+            Time_Zone INTEGER,
+            IATA TEXT,
+            ICAO TEXT,
+            Country TEXT,
+            Continent TEXT,
+            Runway INTEGER,
+            Airport_Size TEXT,
+            Slots_per_five_minutes INTEGER,
+            Slot_Availability FLOAT,
+            Min_transfer_time INTEGER,
+            Nighttime_ban INTEGER,
+            Noise_restrictions INTEGER,
+            Passengers INTEGER,
+            Cargo INTEGER
+        );
+        """
+        t_sql = sqlite3.connect(self.DBPath)
+        t_sql.execute(create_sql)
+        t_sql.execute("DELETE FROM AirportInfo;")
+        t_sql.commit()
+        t_sql.close()
+
+    def thread_getAirportInfo(self, AirportNumber: int):
+        """
+        实际获取机场信息的线程，没有其他的功能
+        :param AirportNumber: 航班号码
+        """
+        # 机场是自增探索形式，如果失败了后边就不需要做了
+        t_response = retry_request(self.baseURL + str(AirportNumber))
+        if t_response.url.endswith(self.errorURL):
+            self.flag_finish.append((AirportNumber - 1) % max_thread_workers)
+            return
+        # 具体执行
+        insert_sql = "INSERT INTO AirportInfo VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?);"
+        t_dict = {"Time_Zone": 0, "IATA_Code": '', "ICAO_Code": '', "Country": '', "Continent": '', "Runway": 0,
+                  "Airport_Size": '', "Slots_per_five_minutes": 0, "Slot_Availability": 0, "Min_transfer_time": 0,
+                  "Nighttime_ban": 0, "Noise_restrictions": 0, "Passengers": 0, "Cargo": 0}
+
+        def Recursion_ParseAirportInfo(root: bs4_Tag):
+            if root.getText() in ('時區', 'Time zone'):
+                t_dict['Time_Zone'] = int(root.parent.contents[1].getText().replace('+', '').replace('UTC', ''). \
+                                          replace(' ', '').split(':')[0])
+            elif root.getText() in ('IATA 代號', 'IATA code'):
+                t_dict['IATA_Code'] = root.parent.contents[1].getText()
+            elif root.getText() in ('ICAO 代號', 'ICAO code'):
+                t_dict['ICAO_Code'] = root.parent.contents[1].getText()
+            elif root.getText() in ('國家', 'Country'):
+                t_dict["Country"] = root.parent.contents[1].contents[0].getText()
+            elif root.getText() in ('洲別', 'Continent'):
+                t_dict["Continent"] = root.parent.contents[1].getText()
+            elif root.getText() in ('跑道', 'Runway'):
+                t_dict["Runway"] = int(root.parent.contents[1].getText().replace(',', '').replace('m', '').strip())
+            elif root.getText() in ('機場大小', 'Airport size'):
+                t_dict["Airport_Size"] = root.parent.contents[1].getText()
+            elif root.getText() in ('時間帶數 (每五分鐘)', 'Slots (per 5 minutes)'):
+                t_dict["Slots_per_five_minutes"] = int(root.parent.contents[1].getText())
+            elif root.getText() in ('可用時間帶', 'Slot Availability'):
+                t_dict["Slot_Availability"] = int(root.parent.contents[1].getText().replace('%', '')) / 100
+            elif root.getText() in ('最短轉機時間', 'Min. transfer time'):
+                t1: str = root.parent.contents[1].contents[0].getText()
+                t_dict["Min_transfer_time"] = int(t1.split(':')[0]) * 60 + int(t1.split()[1])
+            elif root.getText() in ('宵禁', 'Nighttime ban'):
+                if root.parent.contents[1].getText() not in ('無宵禁', 'no nighttime ban'):
+                    t_dict["Nighttime_ban"] = 1
+            elif root.getText() in ('噪音管制', 'Noise restrictions'):
+                if root.parent.contents[1].getText() not in ('無噪音管制', 'no noise restrictions'):
+                    t_dict["Noise_restrictions"] = 1
+            elif root.getText() in ('旅客', 'Passengers'):
+                t_dict["Passengers"] = int(root.parent.contents[1].contents[0].attrs.get('title'). \
+                                           replace('demand:', '').strip())
+            elif root.getText() in ('貨物', 'Cargo'):
+                t_dict["Cargo"] = int(root.parent.contents[1].contents[0].attrs.get('title'). \
+                                      replace('demand:', '').strip())
+            for t_unit in root.children:
+                if isinstance(t_unit, bs4_Tag):
+                    Recursion_ParseAirportInfo(t_unit)
+
+        for unit in BeautifulSoup(DeleteALLChar(t_response.text)).children:
+            if isinstance(unit, bs4_Tag):
+                Recursion_ParseAirportInfo(unit)
+        t_sql = sqlite3.connect(self.DBPath)
+        t_sql.execute(insert_sql, (
+            t_dict["Time_Zone"], t_dict["IATA_Code"], t_dict["ICAO_Code"], t_dict["Country"], t_dict["Continent"],
+            t_dict["Runway"], t_dict["Airport_Size"], t_dict["Slots_per_five_minutes"], t_dict["Slot_Availability"],
+            t_dict["Min_transfer_time"], t_dict["Nighttime_ban"], t_dict["Noise_restrictions"], t_dict["Passengers"],
+            t_dict["Cargo"]))
+        t_sql.commit()
+        t_sql.close()
+        print('对机场 %s 信息抓取完成。' % t_dict["IATA_Code"])
+        Thread(target=self.thread_getAirportInfo, args=(AirportNumber + max_thread_workers,)).start()
+
+    def DetectFinish(self):
+        return len(self.flag_finish) == max_thread_workers
