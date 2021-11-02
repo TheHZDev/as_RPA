@@ -635,10 +635,13 @@ class Flight_Planning_Sub_System:
                                           line.get('Service'), line.get('Hour'), line.get('Minute'),
                                           SrcTerminal=line.get('SrcTerminal'), DstTerminal=line.get('DstTerminal'),
                                           LastResponse=t1.get('LastResponse'))
-        if t1.get('UnusableSlots') or flag_UnusableSlots:
-            self.callback_printLogs('航班%s在排程%s到%s遇到了时刻表异常，无法解决。' % (
+        if t1.get('UnusableSlots'):
+            self.callback_printLogs('航班%s在排程%s到%s遇到了时刻表异常，无法解决。排程已结束，但未执行。' % (
                 self.cache_search_fleets.get(AirplaneURL, {}).get('NickName', ''),
                 configList[-1].get('Src'), configList[-1].get('Dst')))
+        elif flag_UnusableSlots:
+            self.callback_printLogs('航班%s由于无法解决的时刻表异常，排程已结束，但未执行。' % (
+                self.cache_search_fleets.get(AirplaneURL, {}).get('NickName', '')))
         elif t1.get('AllowAutoFlightPlan'):
             if delayExecute:
                 user_commit = 2
