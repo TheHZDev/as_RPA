@@ -1,11 +1,37 @@
 import sqlite3
 from threading import Thread
+from time import sleep
 
 import requests
 from bs4 import BeautifulSoup
 from bs4.element import Tag as bs4_Tag
 
 max_thread_workers = 5
+
+
+def retry_request(url: str, timeout: int = 60, retry_cooldown=5, retry_times=3, data=None):
+    """
+    规范化网络连接尝试规程，以解决HTTPS连接慢及服务器垃圾问题
+    :param url: 要连接的目标URL，以GET的方式连接
+    :param timeout: 超时时间
+    :param retry_cooldown: 重试前的冷却时间
+    :param retry_times: 最大尝试次数
+    :param data: 要POST到服务端的数据
+    """
+    if timeout < 1:
+        timeout = 60
+    retry_cooldown = max(5, retry_cooldown)
+    retry_times = max(3, retry_times)
+    for i in range(retry_times):
+        try:
+            if data is None:
+                return requests.get(url, timeout=timeout)
+            else:
+                return requests.post(url, data=data, timeout=timeout)
+        except requests.exceptions.ConnectTimeout:
+            print('连接出错，将在 %d 秒后再次重试。' % retry_cooldown)
+            sleep(retry_cooldown)
+    return requests.Response()
 
 
 class CalcAirplaneProperty:
@@ -110,7 +136,7 @@ class CalcAirplaneProperty:
                 if isinstance(t_unit, bs4_Tag):
                     Recursion_GetAllCountryID(t_unit)
 
-        for unit in BeautifulSoup(self.DeleteALLChar(requests.get(first_url).text), 'html5lib'):
+        for unit in BeautifulSoup(self.DeleteALLChar(retry_request(first_url).text), 'html5lib'):
             if len(self.cache_CountryIndex) > 0:
                 break
             if isinstance(unit, bs4_Tag):
@@ -169,7 +195,7 @@ class CalcAirplaneProperty:
                 if isinstance(t_unit, bs4_Tag):
                     Recursion_GetAirplaneInfo(t_unit)
 
-        for unit in BeautifulSoup(self.DeleteALLChar(requests.get(target_url).text), 'html5lib'):
+        for unit in BeautifulSoup(self.DeleteALLChar(retry_request(target_url).text), 'html5lib'):
             if isinstance(unit, bs4_Tag):
                 Recursion_GetAirplaneInfo(unit)
         self.callback_outputLog('对国家 %s 的信息抓取完成。' % result_text[0])
@@ -202,7 +228,7 @@ class CalcAirplaneProperty:
                 if isinstance(t_unit, bs4_Tag):
                     Recursion_GetAirCompanyInfo(t_unit)
 
-        for unit in BeautifulSoup(self.DeleteALLChar(requests.get(target_url).text), 'html5lib'):
+        for unit in BeautifulSoup(self.DeleteALLChar(retry_request(target_url).text), 'html5lib'):
             if isinstance(unit, bs4_Tag):
                 Recursion_GetAirCompanyInfo(unit)
         self.callback_outputLog('对公司 %s 的信息抓取完成。' % result_text[0])
@@ -338,6 +364,7 @@ class CalcAirplaneProperty:
                      "FROM Fleets);"
         for line in t_sql.execute(select_sql).fetchall():
             cache_AirPriceMap[line[0]] = line[1]
+        self.callback_outputLog('计算资产中......数据缓存建立完毕！')
         # 初始化完毕
         select_sql = "SELECT AirType, FirstCabin, BusinessCabin, EconomyCabin, IsRented FROM Fleets " \
                      "WHERE AirCompany = ?;"
@@ -348,6 +375,7 @@ class CalcAirplaneProperty:
                 else:
                     result_dict[AirCompany] += cache_AirPriceMap.get(line[0])
                 result_dict[AirCompany] += line[1] * SeatPrice[0] + line[2] * SeatPrice[1] + line[3] * SeatPrice[2]
+        self.callback_outputLog('计算资产中......所有航机及座位资产计算完成！')
         # 初始计算完成
         if MergeSubCompany:
             select_sql = "SELECT AirCompany, ParentAirCompany FROM AirCompanyMap;"
@@ -378,6 +406,7 @@ class CalcAirplaneProperty:
                         break
             for line in cache_SubCompany.keys():
                 result_dict.pop(line)  # 删除资产为0的子公司
+            self.callback_outputLog('计算资产中......子公司归并计算完毕！')
         result_list = []
         for AirCompany in result_dict.keys():
             result_list.append((AirCompany, result_dict.get(AirCompany)))
@@ -390,21 +419,5 @@ class CalcAirplaneProperty:
 
         from functools import cmp_to_key
         result_list.sort(key=cmp_to_key(_cmp), reverse=DescSorted)
+        self.callback_outputLog('计算资产中......数据已按照资产数额排列完成！')
         return result_list
-
-# if __name__ == '__main__':
-#     from time import sleep
-#     calcService = CalcAirplaneProperty('Otto', input('Username of Otto:'), input('Password of Otto'))
-#     calcService.getAirplaneInfoIndex()
-#     while len(calcService.cache_CountryIndex) > 0:
-#         sleep(30)
-#     Thread(target=calcService.thread_getAirplanePrice).start()
-#     calcService.getAirCompanyInfoIndex()
-#     while len(calcService.cache_AirCompanyURL) > 0:
-#         sleep(30)
-#     while not calcService.flag_price_ok:
-#         sleep(30)
-#     sleep(10)
-#     print('企业\t资产负债表')
-#     for line in calcService.CalcBalanceSheet():
-#         print('%s\t%.2f K AS$' % (line[0], line[1] / 1000))
