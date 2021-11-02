@@ -437,7 +437,7 @@ class getAirportInfo:
         if ServerName not in ServerMap.keys():
             raise Exception('无效的服务器名称。')
         self.baseURL = 'https://' + urlparse(getBaseURL(ServerName)).netloc + '/app/info/airports/'
-        self.errorURL = '/action/user/invalidParameter'  # URL后缀
+        self.errorURL = '/app/wicket/page'  # URL后缀
         self.DBPath = ServerName + '.sqlite'
         self.DB_Init()
         for i in range(1, max_thread_workers + 1):
@@ -475,55 +475,75 @@ class getAirportInfo:
         """
         # 机场是自增探索形式，如果失败了后边就不需要做了
         t_response = retry_request(self.baseURL + str(AirportNumber))
-        if t_response.url.endswith(self.errorURL):
-            self.flag_finish.append((AirportNumber - 1) % max_thread_workers)
+        if self.errorURL in t_response.url:
+            # 这里进行二次路径探测，换句话说就是看后面还有没有，有，说明是单独误报
+            flag_found = -1
+            print('id为 %d 的机场不存在。' % AirportNumber)
+            for i in range(1, 11):
+                t_response = requests.get(self.baseURL + str(AirportNumber + max_thread_workers * i),
+                                          allow_redirects=False)
+                if self.errorURL not in t_response.headers.get('Location', ''):
+                    flag_found = AirportNumber + i * 5
+                    break
+                else:
+                    print('id为 %d 的机场不存在。' % (AirportNumber + max_thread_workers * i))
+            if flag_found == -1:
+                print('线程已退出。')
+                self.flag_finish.append((AirportNumber - 1) % max_thread_workers)
+            else:
+                self.thread_getAirportInfo(flag_found)  # 节省线程使用量
             return
         # 具体执行
         insert_sql = "INSERT INTO AirportInfo VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?);"
         t_dict = {"Time_Zone": 0, "IATA_Code": '', "ICAO_Code": '', "Country": '', "Continent": '', "Runway": 0,
-                  "Airport_Size": '', "Slots_per_five_minutes": 0, "Slot_Availability": 0, "Min_transfer_time": 0,
+                  "Airport_Size": '', "Slots_per_five_minutes": 0, "Slot_Availability": 0, "Min_transfer_time": 1440,
                   "Nighttime_ban": 0, "Noise_restrictions": 0, "Passengers": 0, "Cargo": 0}
 
         def Recursion_ParseAirportInfo(root: bs4_Tag):
-            if root.getText() in ('時區', 'Time zone'):
-                t_dict['Time_Zone'] = int(root.parent.contents[1].getText().replace('+', '').replace('UTC', ''). \
-                                          replace(' ', '').split(':')[0])
-            elif root.getText() in ('IATA 代號', 'IATA code'):
-                t_dict['IATA_Code'] = root.parent.contents[1].getText()
-            elif root.getText() in ('ICAO 代號', 'ICAO code'):
-                t_dict['ICAO_Code'] = root.parent.contents[1].getText()
-            elif root.getText() in ('國家', 'Country'):
-                t_dict["Country"] = root.parent.contents[1].contents[0].getText()
-            elif root.getText() in ('洲別', 'Continent'):
-                t_dict["Continent"] = root.parent.contents[1].getText()
-            elif root.getText() in ('跑道', 'Runway'):
-                t_dict["Runway"] = int(root.parent.contents[1].getText().replace(',', '').replace('m', '').strip())
-            elif root.getText() in ('機場大小', 'Airport size'):
-                t_dict["Airport_Size"] = root.parent.contents[1].getText()
-            elif root.getText() in ('時間帶數 (每五分鐘)', 'Slots (per 5 minutes)'):
-                t_dict["Slots_per_five_minutes"] = int(root.parent.contents[1].getText())
-            elif root.getText() in ('可用時間帶', 'Slot Availability'):
-                t_dict["Slot_Availability"] = int(root.parent.contents[1].getText().replace('%', '')) / 100
-            elif root.getText() in ('最短轉機時間', 'Min. transfer time'):
-                t1: str = root.parent.contents[1].contents[0].getText()
-                t_dict["Min_transfer_time"] = int(t1.split(':')[0]) * 60 + int(t1.split()[1])
-            elif root.getText() in ('宵禁', 'Nighttime ban'):
-                if root.parent.contents[1].getText() not in ('無宵禁', 'no nighttime ban'):
-                    t_dict["Nighttime_ban"] = 1
-            elif root.getText() in ('噪音管制', 'Noise restrictions'):
-                if root.parent.contents[1].getText() not in ('無噪音管制', 'no noise restrictions'):
-                    t_dict["Noise_restrictions"] = 1
-            elif root.getText() in ('旅客', 'Passengers'):
-                t_dict["Passengers"] = int(root.parent.contents[1].contents[0].attrs.get('title'). \
-                                           replace('demand:', '').strip())
-            elif root.getText() in ('貨物', 'Cargo'):
-                t_dict["Cargo"] = int(root.parent.contents[1].contents[0].attrs.get('title'). \
-                                      replace('demand:', '').strip())
+            if root.name == 'td':
+                if root.getText() in ('時區', 'Time zone'):
+                    try:
+                        t_dict['Time_Zone'] = int(root.parent.contents[1].getText().replace('+', '').replace('UTC', ''). \
+                                                  replace(' ', '').split(':')[0])
+                    except:  # 可能遇到了格林尼治时期（UTC时间）
+                        pass
+                elif root.getText() in ('IATA 代號', 'IATA code'):
+                    t_dict['IATA_Code'] = root.parent.contents[1].getText()
+                elif root.getText() in ('ICAO 代號', 'ICAO code'):
+                    t_dict['ICAO_Code'] = root.parent.contents[1].getText()
+                elif root.getText() in ('國家', 'Country'):
+                    t_dict["Country"] = root.parent.contents[1].contents[0].getText()
+                elif root.getText() in ('洲別', 'Continent'):
+                    t_dict["Continent"] = root.parent.contents[1].getText()
+                elif root.getText() in ('跑道', 'Runway'):
+                    t_dict["Runway"] = int(root.parent.contents[1].getText().replace(',', '').replace('m', '').strip())
+                elif root.getText() in ('機場大小', 'Airport size'):
+                    t_dict["Airport_Size"] = root.parent.contents[1].getText()
+                elif root.getText() in ('時間帶數 (每五分鐘)', 'Slots (per 5 minutes)'):
+                    t_dict["Slots_per_five_minutes"] = int(root.parent.contents[1].getText())
+                elif root.getText() in ('可用時間帶', 'Slot Availability'):
+                    t_dict["Slot_Availability"] = int(root.parent.contents[1].getText().replace('%', '')) / 100
+                elif root.getText() in ('最短轉機時間', 'Min. transfer time'):
+                    if 'transfer impossible' not in root.parent.contents[1].contents[0].getText():
+                        t1: str = root.parent.contents[1].contents[0].getText()
+                        t_dict["Min_transfer_time"] = int(t1.split(':')[0]) * 60 + int(t1.split(':')[1])
+                elif root.getText() in ('宵禁', 'Nighttime ban'):
+                    if root.parent.contents[1].getText() not in ('無宵禁', 'no nighttime ban'):
+                        t_dict["Nighttime_ban"] = 1
+                elif root.getText() in ('噪音管制', 'Noise restrictions'):
+                    if root.parent.contents[1].getText() not in ('無噪音管制', 'no noise restrictions'):
+                        t_dict["Noise_restrictions"] = 1
+                elif root.getText() in ('旅客', 'Passengers'):
+                    t_dict["Passengers"] = int(root.parent.contents[1].contents[0].attrs.get('title'). \
+                                               replace('demand:', '').strip())
+                elif root.getText() in ('貨物', 'Cargo'):
+                    t_dict["Cargo"] = int(root.parent.contents[1].contents[0].attrs.get('title'). \
+                                          replace('demand:', '').strip())
             for t_unit in root.children:
                 if isinstance(t_unit, bs4_Tag):
                     Recursion_ParseAirportInfo(t_unit)
 
-        for unit in BeautifulSoup(DeleteALLChar(t_response.text)).children:
+        for unit in BeautifulSoup(DeleteALLChar(t_response.text), 'html5lib').children:
             if isinstance(unit, bs4_Tag):
                 Recursion_ParseAirportInfo(unit)
         t_sql = sqlite3.connect(self.DBPath)
