@@ -620,6 +620,7 @@ class Flight_Planning_Sub_System:
                                       configList[0].get('Hour'), configList[0].get('Minute'),
                                       SrcTerminal=configList[0].get('SrcTerminal'),
                                       DstTerminal=configList[0].get('DstTerminal'))
+        flag_UnusableSlots = False
         for line in configList[1:]:
             if not t1.get('AllowAutoFlightPlan'):
                 self.callback_printLogs('由于触发了低维护比规则，已对航机%s终止排程。' %
@@ -629,11 +630,12 @@ class Flight_Planning_Sub_System:
                 self.callback_printLogs('航班%s在排程%s到%s遇到了时刻表异常，无法解决。' % (
                     self.cache_search_fleets.get(AirplaneURL, {}).get('NickName', ''),
                     line.get('Src'), line.get('Dst')))
+                flag_UnusableSlots = True
             t1 = self.BuildNewAirlinePlan(AirplaneURL, line.get('Src'), line.get('Dst'), line.get('Price'),
                                           line.get('Service'), line.get('Hour'), line.get('Minute'),
                                           SrcTerminal=line.get('SrcTerminal'), DstTerminal=line.get('DstTerminal'),
                                           LastResponse=t1.get('LastResponse'))
-        if t1.get('UnusableSlots'):
+        if t1.get('UnusableSlots') or flag_UnusableSlots:
             self.callback_printLogs('航班%s在排程%s到%s遇到了时刻表异常，无法解决。' % (
                 self.cache_search_fleets.get(AirplaneURL, {}).get('NickName', ''),
                 configList[-1].get('Src'), configList[-1].get('Dst')))
