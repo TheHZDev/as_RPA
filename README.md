@@ -180,7 +180,7 @@ GetAirportInfo('Otto')
 Scheme_B_HKG = FleetManager.Experimental_MakeFlightPlanConfig('HKG-SIN-HKG', ['ServiceA', 'ServiceB'], [70, 130],
                                                               '17:05', SpeedConfig=('Max', 'Min'))
 ```
-
+  
 第2架飞机的航机编号为B-HMMS，路线为HKG-BLR-HKG-KUL-HKG，第一趟起飞时间为1:20，服务方案统一为ServiceC，价格统一为120，速度统一为最高巡航速度。  
 **其中所有从HKG出发的航班使用T2航站楼，所有到达HKG的航班使用T3航站楼。**  
 则代码可以写成：
