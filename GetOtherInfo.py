@@ -424,7 +424,7 @@ class CalcAirplaneProperty:
         return result_list
 
 
-class getAirportInfo:
+class GetAirportInfo:
     flag_finish = []
 
     def __init__(self, ServerName: str):
@@ -479,7 +479,7 @@ class getAirportInfo:
             # 这里进行二次路径探测，换句话说就是看后面还有没有，有，说明是单独误报
             flag_found = -1
             print('id为 %d 的机场不存在。' % AirportNumber)
-            for i in range(1, 11):
+            for i in range(1, 6):
                 t_response = requests.get(self.baseURL + str(AirportNumber + max_thread_workers * i),
                                           allow_redirects=False)
                 if self.errorURL not in t_response.headers.get('Location', ''):
@@ -496,7 +496,7 @@ class getAirportInfo:
         # 具体执行
         insert_sql = "INSERT INTO AirportInfo VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?);"
         t_dict = {"Time_Zone": 0, "IATA_Code": '', "ICAO_Code": '', "Country": '', "Continent": '', "Runway": 0,
-                  "Airport_Size": '', "Slots_per_five_minutes": 0, "Slot_Availability": 0, "Min_transfer_time": 1440,
+                  "Airport_Size": '', "Slots_per_five_minutes": 0, "Slot_Availability": 0, "Min_transfer_time": -1,
                   "Nighttime_ban": 0, "Noise_restrictions": 0, "Passengers": 0, "Cargo": 0}
 
         def Recursion_ParseAirportInfo(root: bs4_Tag):

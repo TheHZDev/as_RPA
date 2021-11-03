@@ -16,7 +16,7 @@
 以及使用pip安装以下的包：
 
 ```shell
-pip install requests beautifulsoup4 html5lib
+pip install requests[socks] beautifulsoup4 html5lib wxPython
 ```
 
 本项目初步实现了以下功能：
@@ -26,6 +26,7 @@ pip install requests beautifulsoup4 html5lib
 - 自动纠正时刻表异常并发出提醒
 - 允许用户选择出发和目的地的航站楼
 
+----
 TODO：
 
 - GUI化
@@ -152,5 +153,17 @@ print('企业名称\t\t\t资产数额')
 for line in CalcService.CalcBalanceSheet():
   print('%s\t\t\t%.2f' % (line[0], line[1] / 1000))
 ```
+
 如果您知悉航机数据表有更新，请删除生成的数据库文件（.sqlite）以降低程序出错概率。  
 多线程抓取信息的时候有可能会卡住，请在网络状况良好时再尝试。
+----
+如果需要使用机场信息抓取功能，请填入以下代码并执行：
+
+```python
+from GetOtherInfo import GetAirportInfo
+
+GetAirportInfo('Otto')
+```
+
+该程序将自动抓取Otto服务器的机场信息，并在控制台上显示。  
+数据会被保存在同目录下的数据库文件中，以便之后查询。
