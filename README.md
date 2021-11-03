@@ -7,6 +7,7 @@
   - [准备使用](#准备使用)
   - [自动排程示例](#自动排程示例)
   - [信息收集示例](#信息收集示例)
+  - [高级自动排程示例](#高级自动排程)
 
 <a id="prepare-use"></a>
 
@@ -165,3 +166,43 @@ GetAirportInfo('Otto')
 
 该程序将自动抓取Otto服务器的机场信息，并在控制台上显示。  
 数据会被保存在同目录下的数据库文件中，以便之后查询。
+
+### 高级自动排程
+
+在前面的示例中，使用了相对简单的参数和函数完成了基本的排程管理。但实际操作的时候，往往需要同时对多架飞机进行不同的排程管理，甚至还可能会调整航机的起飞时间和飞行速度。  
+在这个示例中，我会对三架飞机进行排程操作，并讲解不同的参数的作用。
+
+第1架飞机的航机编号为B-HKG，路线为HKG-SIN-HKG，第一趟起飞时间为17:05，服务方案分别为ServiceA和ServiceB，价格分别为70和130，  
+**HKG至SIN的航班使用最高巡航速度，SIN至HKG的航班使用最低巡航速度**  
+则代码可以写成：
+
+```python
+Scheme_B_HKG = FleetManager.Experimental_MakeFlightPlanConfig('HKG-SIN-HKG', ['ServiceA', 'ServiceB'], [70, 130],
+                                                              '17:05', SpeedConfig=('Max', 'Min'))
+```
+
+第2架飞机的航机编号为B-HMMS，路线为HKG-BLR-HKG-KUL-HKG，第一趟起飞时间为1:20，服务方案统一为ServiceC，价格统一为120，速度统一为最高巡航速度。  
+**其中所有从HKG出发的航班使用T2航站楼，所有到达HKG的航班使用T3航站楼。**  
+则代码可以写成：
+
+```python
+Scheme_B_HMMS = FleetManager.Experimental_MakeFlightPlanConfig('HKG-BLR-HKG-KUL-HKG', ['ServiceC'], [120], '1:20',
+                                                               SpeedConfig=('Max'),
+                                                               TerminalConfig=[('T2', 'T1'), ('T1', 'T3')])
+```
+
+航站楼的设置也是允许循环使用的。
+
+第3架飞机的航机编号为P-257，路线为PEK-HKG-SIN-SYD-PEK，第1，2，3趟航班的起飞时间分别为4:20、6:45、8:
+50，最后一趟航班使用系统推荐时间，服务方案统一为ServiceD，价格分别为110、200、50、80， 其中  
+**PEK至HKG的航程使用最高巡航速度，SIN至SYD的航程使用最低巡航速度，其它航程保持最佳巡航速度不变。经过HKG的航班都使用T2航站楼，经过SYD的都使用T5航站楼。**  
+在这个示例中，由于配置变得相对复杂化，我将使用原始方法演示配置过程：
+
+```python
+Scheme_P_257 = [
+  FleetManager.MakeSingleFlightPlan('PEK', 'HKG', 110, 'ServiceD', '4:20', ('T1', 'T2'), 'Max'),
+  FleetManager.MakeSingleFlightPlan('HKG', 'SIN', 200, 'ServiceD', '6:45', ('T2', 'T1'), 'Normal'),
+  FleetManager.MakeSingleFlightPlan('SIN', 'SYD', 50, 'ServiceD', '8:50', ('T1', 'T5'), 'Min'),
+  FleetManager.MakeSingleFlightPlan('SYD', 'PEK', 80, 'ServiceD', '', ('T5', 'T1'), 'Normal')
+]
+```
