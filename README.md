@@ -4,9 +4,9 @@
 
 * 菜单
 
-  - [准备使用](#prepare-use)
-  - [自动排程示例](#example-auto-execute-flight-plan)
-  - [信息收集示例](#example-getinfo)
+  - [准备使用](#准备使用)
+  - [自动排程示例](#自动排程示例)
+  - [信息收集示例](#信息收集示例)
 
 <a id="prepare-use"></a>
 
@@ -121,8 +121,6 @@ FleetManager.close()
 
 如果一切顺利且没有出错，您的航机将会排班成功，如您遇到了这样或那样的问题，欢迎使用GitHub的Issue向我提问。
 
-<a id="example-getinfo"></a>
-
 ### 信息收集示例
 
 目前信息收集的功能主要为资产计算，后续会增加机场信息收集。  
@@ -156,7 +154,7 @@ for line in CalcService.CalcBalanceSheet():
 
 如果您知悉航机数据表有更新，请删除生成的数据库文件（.sqlite）以降低程序出错概率。  
 多线程抓取信息的时候有可能会卡住，请在网络状况良好时再尝试。
-----
+
 如果需要使用机场信息抓取功能，请填入以下代码并执行：
 
 ```python

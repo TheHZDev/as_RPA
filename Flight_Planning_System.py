@@ -1,4 +1,3 @@
-from typing import Tuple
 from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup
@@ -17,6 +16,7 @@ class Flight_Planning_Sub_System:
     cache_ServiceInfo = {}
     cache_search_fleets = {}
     default_service_name = ''
+    const_speed_config = {'Min': 0, 'Normal': 1, 'Max': 2}  # 速度常规设置
 
     def __init__(self, logonSession: Session, ServerName: str, callback_raiseException=None):
         """
@@ -153,9 +153,8 @@ class Flight_Planning_Sub_System:
 
     def BuildNewAirlinePlan(self, AirplaneURL: str, SrcAirport: str, DstAirport: str,
                             Price: int, Service: str, DepartHour: int = -1, DepartMinute: int = -1,
-                            WeekPlan: Tuple[bool, bool, bool, bool, bool, bool, bool] =
-                            (True, True, True, True, True, True, True), SrcTerminal: str = 'T1',
-                            DstTerminal: str = 'T1', LastResponse: Response = None):
+                            SrcTerminal: str = 'T1', DstTerminal: str = 'T1', SpeedConfig: int = 1,
+                            LastResponse: Response = None):
         """
         使用给定的参数建立一个新航班，航班号采用随机生成（暂不支持航班中转）
         :param AirplaneURL: 要管理的机队的URL
@@ -163,7 +162,6 @@ class Flight_Planning_Sub_System:
         :param DstAirport: 目标机场，航班的目的地
         :param DepartHour: 起飞时间，这里是小时（0 ~ 23），如果不填，使用系统推荐时间代替
         :param DepartMinute: 起飞时间，这里是分钟（0 ~ 59），如果不填，使用系统推荐时间代替
-        :param WeekPlan: 周计划排班，都选True就是一周全排
         :param Price: 价格系数，实际上是个百分比，如110 <=> 110%
         :param Service: 服务系数，请使用其它函数生成该数值
         :param SrcTerminal: 出发机场航站楼。写T2即代表选中T2
@@ -177,7 +175,8 @@ class Flight_Planning_Sub_System:
         # 参数正确性检查
         if not ((AirplaneURL.startswith(self.baseURL) or isinstance(LastResponse, Response))
                 and SrcAirport in self.cache_AirportInfo.keys() and DstAirport in self.cache_AirportInfo.keys() and
-                Service in self.cache_ServiceInfo.keys() and 50 <= Price <= 200):
+                Service in self.cache_ServiceInfo.keys() and 50 <= Price <= 200 and
+                SpeedConfig in self.const_speed_config.values()):
             raise Exception('请检查设置参数是否正确！参数异常，已拒绝。')
         if isinstance(LastResponse, Response):
             AirlineManagerPage = LastResponse  # 可重复使用的Response
@@ -273,13 +272,29 @@ class Flight_Planning_Sub_System:
         WeekPlanPage = self.logonSession.post(t_url, data=first_post_data, verify=local_Network_Debug, timeout=10000)
         self.logonSession.headers['Referer'] = WeekPlanPage.url
         current_random = self.getCurrentRandom(WeekPlanPage.url, WeekPlanPage.text)
-        second_post_data = {'segmentSettings:0:originTerminal': '', 'segmentSettings:0:destinationTerminal': ''}
+        second_post_data = {'segmentSettings:0:originTerminal': '', 'segmentSettings:0:destinationTerminal': '',
+                            'segmentsContainer:segments:0:speed-overrides:0:speedOverride': '',
+                            'segmentsContainer:segments:0:speed-overrides:1:speedOverride': '',
+                            'segmentsContainer:segments:0:speed-overrides:2:speedOverride': '',
+                            'segmentsContainer:segments:0:speed-overrides:3:speedOverride': '',
+                            'segmentsContainer:segments:0:speed-overrides:4:speedOverride': '',
+                            'segmentsContainer:segments:0:speed-overrides:5:speedOverride': '',
+                            'segmentsContainer:segments:0:speed-overrides:6:speedOverride': ''}
         t_url = 'IFormSubmitListener-tabs-panel-newFlight-flightPlanning-flight.planning.form'
         # 迷惑大赏环节，我自己也不知道这bug什么鬼
         if t_url not in WeekPlanPage.text:
             t_url_1 = 'IFormSubmitListener-tabs-panel-newFlight-flightNumber-newNumber-aircraft.newflight.number'
             WeekPlanPage = self.logonSession.post(current_random + t_url_1, data=first_post_data,
                                                   verify=local_Network_Debug, timeout=10000)
+            current_random = self.getCurrentRandom(WeekPlanPage.url, WeekPlanPage.text)
+
+        # 加速或减速的判断
+        if SpeedConfig != 1:
+            if SpeedConfig > 1:
+                the_url = current_random + 'ILinkListener-tabs-panel-newFlight-flightPlanning-flight.planning.form-segmentsContainer-segments-0-speeds~set~max'
+            else:
+                the_url = current_random + 'ILinkListener-tabs-panel-newFlight-flightPlanning-flight.planning.form-segmentsContainer-segments-0-speeds~set~min'
+            WeekPlanPage = self.logonSession.get(the_url, verify=local_Network_Debug, timeout=10000)
             current_random = self.getCurrentRandom(WeekPlanPage.url, WeekPlanPage.text)
 
         def Recursion_GetSpecialID_B(root: bs4_tag):
@@ -289,22 +304,30 @@ class Flight_Planning_Sub_System:
                     t_name = root.contents[0].contents[0].attrs.get('name')
                     second_post_data[t_name] = ''
                     return
-                if root.attrs.get('name', '') == 'button-submit':  # 提取特定文字
+                elif root.attrs.get('name', '') == 'button-submit':  # 提取特定文字
                     second_post_data['button-submit'] = root.attrs.get('value')
                     return
-                if root.attrs.get('name', '') == 'segmentSettings:0:originTerminal' and SrcTerminal not in ('T1', ''):
+                elif root.attrs.get('name', '') == 'segmentSettings:0:originTerminal' and SrcTerminal not in ('T1', ''):
                     # 出发航站楼
                     for t_unit in root.children:
                         if t_unit.getText().startswith(SrcTerminal.upper()):
                             second_post_data['segmentSettings:0:originTerminal'] = t_unit.attrs.get('value')
                             return
-                if root.attrs.get('name', '') == 'segmentSettings:0:destinationTerminal' and \
+                elif root.attrs.get('name', '') == 'segmentSettings:0:destinationTerminal' and \
                         DstTerminal not in ('T1', ''):
                     # 到达航站楼
                     for t_unit in root.children:
                         if t_unit.getText().startswith(DstTerminal.upper()):
                             second_post_data['segmentSettings:0:destinationTerminal'] = t_unit.attrs.get('value')
                             return
+                elif root.name == 'input' and root.attrs.get('name',
+                                                             '') == 'segmentsContainer:segments:0:speed-overrides:0:speedOverride' and \
+                        SpeedConfig != 1:
+                    # 速度获取
+                    current_speed = root.attrs.get('value', '')
+                    for i in range(7):
+                        second_post_data[
+                            'segmentsContainer:segments:0:speed-overrides:%d:speedOverride' % i] = current_speed
             finally:
                 for t_unit in root.children:
                     if isinstance(t_unit, bs4_tag):
@@ -367,34 +390,18 @@ class Flight_Planning_Sub_System:
                     break
                 t_minute = (t_minute + 5) % 60
         # 无论是否解决，都要继续执行
-        try:
-            t_num = 0
-            for boolVar in WeekPlan:
-                if boolVar:
-                    second_post_data['days:daySelection:%d:ticked' % t_num] = 'on'
-                else:
-                    second_post_data['days:daySelection:%d:ticked' % t_num] = 'off'
-                t_num += 1
-        except:
-            # 如果出现错误，直接套用已经做好的排程
-            second_post_data.update({'days:daySelection:0:ticked': 'on', 'days:daySelection:1:ticked': 'on',
-                                     'days:daySelection:2:ticked': 'on', 'days:daySelection:3:ticked': 'on',
-                                     'days:daySelection:4:ticked': 'on', 'days:daySelection:5:ticked': 'on',
-                                     'days:daySelection:6:ticked': 'on'})
-        second_post_data.update({'segmentsContainer:segments:0:departure-offsets:0:departureOffset': '0',
+        # 移除排班计划表，默认一周全排
+        second_post_data.update({'days:daySelection:0:ticked': 'on', 'days:daySelection:1:ticked': 'on',
+                                 'days:daySelection:2:ticked': 'on', 'days:daySelection:3:ticked': 'on',
+                                 'days:daySelection:4:ticked': 'on', 'days:daySelection:5:ticked': 'on',
+                                 'days:daySelection:6:ticked': 'on',
+                                 'segmentsContainer:segments:0:departure-offsets:0:departureOffset': '0',
                                  'segmentsContainer:segments:0:departure-offsets:1:departureOffset': '0',
                                  'segmentsContainer:segments:0:departure-offsets:2:departureOffset': '0',
                                  'segmentsContainer:segments:0:departure-offsets:3:departureOffset': '0',
                                  'segmentsContainer:segments:0:departure-offsets:4:departureOffset': '0',
                                  'segmentsContainer:segments:0:departure-offsets:5:departureOffset': '0',
-                                 'segmentsContainer:segments:0:departure-offsets:6:departureOffset': '0',
-                                 'segmentsContainer:segments:0:speed-overrides:0:speedOverride': '',
-                                 'segmentsContainer:segments:0:speed-overrides:1:speedOverride': '',
-                                 'segmentsContainer:segments:0:speed-overrides:2:speedOverride': '',
-                                 'segmentsContainer:segments:0:speed-overrides:3:speedOverride': '',
-                                 'segmentsContainer:segments:0:speed-overrides:4:speedOverride': '',
-                                 'segmentsContainer:segments:0:speed-overrides:5:speedOverride': '',
-                                 'segmentsContainer:segments:0:speed-overrides:6:speedOverride': ''})
+                                 'segmentsContainer:segments:0:departure-offsets:6:departureOffset': '0'})
         t_url = 'IFormSubmitListener-tabs-panel-newFlight-flightPlanning-flight.planning.form'
         last_result = self.logonSession.post(current_random + t_url, data=second_post_data,
                                              verify=local_Network_Debug, timeout=10000)
@@ -545,9 +552,11 @@ class Flight_Planning_Sub_System:
 
     # UI友好函数
     def MakeSingleFlightPlan(self, SrcAirport: str, DstAirport: str, Price: int, Service: str,
-                             callback_AskQuestion=None, DepartureTime: str = '', TerminalConfig: tuple = ('T1', 'T1')):
+                             callback_AskQuestion=None, DepartureTime: str = '', TerminalConfig: tuple = ('T1', 'T1'),
+                             speed_config: str = 'Normal'):
         """
         根据更通俗易懂的描述转换为程序设置
+        :param speed_config: 速度设置
         :param SrcAirport: 出发机场，可以输入机场的三字母简称或全称（全称是AS上的机场全名）
         :param DstAirport: 目的机场，可以输入机场的三字母简称或全称（全称是AS上的机场全名）
         :param Price: 价格系数，如果想使用110%的价格系数，请输入110即可
@@ -607,7 +616,7 @@ class Flight_Planning_Sub_System:
                 raise Exception('请输入正确的时间数字，不要夹带字母等非数字！')
         return {'Src': SrcAirport, 'Dst': DstAirport, 'Price': Price, 'Service': Service,
                 'Hour': DepartureHour, 'Minute': DepartureMinute, 'SrcTerminal': TerminalConfig[0],
-                'DstTerminal': TerminalConfig[1]}
+                'DstTerminal': TerminalConfig[1], 'Speed': self.const_speed_config.get(speed_config, 1)}
 
     def UI_AutoMakeFlightPlan(self, AirplaneURL: str, configList: list, delayExecute: bool = False):
         """
@@ -656,7 +665,8 @@ class Flight_Planning_Sub_System:
                                     self.cache_search_fleets.get(AirplaneURL, {}).get('NickName', ''))
 
     def Experimental_MakeFlightPlanConfig(self, FlightPath: str, ServiceList: list, PriceList: list,
-                                          FirstDepartureTime: str, TerminalConfig: list = []):
+                                          FirstDepartureTime: str, TerminalConfig: list = [],
+                                          SpeedConfig: tuple = ('Normal')):
         """
         警告：该函数为实验性函数，由此产生的任何非预期结果不对此负任何责任。
         从更通俗易懂的航线，可循环使用的服务列表次序和价格次序中生成设置。
@@ -665,6 +675,7 @@ class Flight_Planning_Sub_System:
         :param PriceList: 价格列表，里面必须全都是数字，否则重置为100
         :param FirstDepartureTime: 第一次的起飞时间，若起飞时间为10点36分，请输入10:36
         :param TerminalConfig: 航站楼参数，请使用如下形式[('T2', 'T2')]，可输入航站楼全称或规范化简称
+        :param SpeedConfig: 速度设置参数，请在每个格填入'Min'（最小速度）、'Normal'（最佳速度）或'Max'（最大速度）
         :return: 设置块，可直接填入UI_AutoMakeFlightPlan函数
         """
 
@@ -677,12 +688,14 @@ class Flight_Planning_Sub_System:
 
         FlightPath = FlightPath.split('-')
         result = [self.MakeSingleFlightPlan(FlightPath[0], FlightPath[1], PriceList[0], ServiceList[0],
-                                            DepartureTime=FirstDepartureTime, TerminalConfig=getTerminalUnit(0))]
+                                            DepartureTime=FirstDepartureTime, TerminalConfig=getTerminalUnit(0),
+                                            speed_config=SpeedConfig[0])]
         for airportID in range(1, len(FlightPath) - 1):
             result.append(self.MakeSingleFlightPlan(FlightPath[airportID], FlightPath[airportID + 1],
                                                     PriceList[airportID % len(PriceList)],
                                                     ServiceList[airportID % len(ServiceList)],
-                                                    TerminalConfig=getTerminalUnit(airportID)))
+                                                    TerminalConfig=getTerminalUnit(airportID),
+                                                    speed_config=SpeedConfig[airportID % len(SpeedConfig)]))
         return result
 
     def callback_askQuestion(self, question: str):
