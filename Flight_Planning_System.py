@@ -4,8 +4,12 @@ from bs4 import BeautifulSoup
 from bs4.element import Tag as bs4_tag
 from requests import Session, Response
 
-flag_Debug = False
-local_Network_Debug = not flag_Debug
+try:
+    from local_debug import flag_Debug
+
+    Debug_Allow_HTTPS_Verify = not flag_Debug
+except:
+    Debug_Allow_HTTPS_Verify = True
 
 
 class Flight_Planning_Sub_System:
@@ -43,7 +47,7 @@ class Flight_Planning_Sub_System:
         target_url = self.baseURL + '/app/fleets'
         fleetsInfo = {}
         FleetsPage = BeautifulSoup(
-            self.DeleteALLChar(self.logonSession.get(target_url, verify=local_Network_Debug, timeout=10000).text),
+            self.DeleteALLChar(self.logonSession.get(target_url, verify=Debug_Allow_HTTPS_Verify, timeout=10000).text),
             'html5lib')
 
         def Recursion_GetFleetsInfo(root: bs4_tag):
@@ -75,7 +79,8 @@ class Flight_Planning_Sub_System:
         if len(self.cache_SubCompany) > 0:
             return self.cache_SubCompany
         MainPage = BeautifulSoup(
-            self.DeleteALLChar(self.logonSession.get(self.baseURL, verify=local_Network_Debug, timeout=10000).text),
+            self.DeleteALLChar(
+                self.logonSession.get(self.baseURL, verify=Debug_Allow_HTTPS_Verify, timeout=10000).text),
             'html5lib')
 
         def Recursion_GetCompanyInfo(root: bs4_tag):
@@ -113,7 +118,7 @@ class Flight_Planning_Sub_System:
     # 实际操作部分
     def BuildAirlineInfoCache(self, AirplaneURL: str):
         # 进入排程管理界面，获取有关机队的机场信息、服务信息，经过对比，这些信息似乎是静态的
-        FleetsPage = self.logonSession.get(AirplaneURL, verify=local_Network_Debug, timeout=10000)
+        FleetsPage = self.logonSession.get(AirplaneURL, verify=Debug_Allow_HTTPS_Verify, timeout=10000)
 
         def Recursion_GetBasicInfo(root: bs4_tag):
             if root.name == 'select':
@@ -144,7 +149,7 @@ class Flight_Planning_Sub_System:
                         'Wicket-FocusedElementId':
                             FleetsPage.text.split(t_url + '"')[1].split('"c":"')[1].split('"')[0]}
             t_url = current_random + t_url + '&_=%d' % self.getTimestamp()
-            NewAirlinePage = self.logonSession.get(t_url, verify=local_Network_Debug, headers=t_header)
+            NewAirlinePage = self.logonSession.get(t_url, verify=Debug_Allow_HTTPS_Verify, headers=t_header)
             # 这还是XML文档里夹了一个HTML文档
             t_text = self.DeleteALLChar(NewAirlinePage.text.split(']]></component>')[0].split('><![CDATA[')[1])
             for unit in BeautifulSoup(t_text, 'html5lib'):
@@ -181,7 +186,7 @@ class Flight_Planning_Sub_System:
         if isinstance(LastResponse, Response):
             AirlineManagerPage = LastResponse  # 可重复使用的Response
         else:
-            AirlineManagerPage = self.logonSession.get(AirplaneURL, verify=local_Network_Debug, timeout=10000)
+            AirlineManagerPage = self.logonSession.get(AirplaneURL, verify=Debug_Allow_HTTPS_Verify, timeout=10000)
         current_random = self.getCurrentRandom(AirlineManagerPage.url, AirlineManagerPage.text)
         self.logonSession.headers['Referer'] = AirlineManagerPage.url
         # 获取可用航班号
@@ -194,7 +199,7 @@ class Flight_Planning_Sub_System:
                         'Wicket-FocusedElementId':
                             AirlineManagerPage.text.split(t_url_1 + '"')[1].split('"c":"')[1].split('"')[0]}
             t_url_1 = current_random + t_url_1 + '&_=%d' % self.getTimestamp()
-            AirlineManagerPage = self.logonSession.get(t_url_1, verify=local_Network_Debug, headers=t_header,
+            AirlineManagerPage = self.logonSession.get(t_url_1, verify=Debug_Allow_HTTPS_Verify, headers=t_header,
                                                        timeout=10000)
         if '><![CDATA[' in AirlineManagerPage.text:
             AirlineManagerPage_text = AirlineManagerPage.text.split(']]></component>')[0].split('><![CDATA[')[1]
@@ -206,7 +211,7 @@ class Flight_Planning_Sub_System:
                         AirlineManagerPage.text.split(t_url + '"')[1].split('"c":"')[1].split('"')[0]}
         t_header.update(self.logonSession.headers.copy())
         t_url = current_random + t_url + '&_=%d' % self.getTimestamp()
-        t_page = self.logonSession.get(t_url, headers=t_header, verify=local_Network_Debug, timeout=10000)
+        t_page = self.logonSession.get(t_url, headers=t_header, verify=Debug_Allow_HTTPS_Verify, timeout=10000)
         # 返回页面是XML里夹了个html，先把HTML搞出来
         t_page_text = self.DeleteALLChar(t_page.text.split(']]></component>')[0].split('><![CDATA[')[1])
         AirlineNumber = [-1]
@@ -269,7 +274,8 @@ class Flight_Planning_Sub_System:
                 Recursion_GetSpecialID_A(unit)
         # 填充数据成功
         t_url = current_random + t_url
-        WeekPlanPage = self.logonSession.post(t_url, data=first_post_data, verify=local_Network_Debug, timeout=10000)
+        WeekPlanPage = self.logonSession.post(t_url, data=first_post_data, verify=Debug_Allow_HTTPS_Verify,
+                                              timeout=10000)
         self.logonSession.headers['Referer'] = WeekPlanPage.url
         current_random = self.getCurrentRandom(WeekPlanPage.url, WeekPlanPage.text)
         second_post_data = {'segmentSettings:0:originTerminal': '', 'segmentSettings:0:destinationTerminal': '',
@@ -285,7 +291,7 @@ class Flight_Planning_Sub_System:
         if t_url not in WeekPlanPage.text:
             t_url_1 = 'IFormSubmitListener-tabs-panel-newFlight-flightNumber-newNumber-aircraft.newflight.number'
             WeekPlanPage = self.logonSession.post(current_random + t_url_1, data=first_post_data,
-                                                  verify=local_Network_Debug, timeout=10000)
+                                                  verify=Debug_Allow_HTTPS_Verify, timeout=10000)
             current_random = self.getCurrentRandom(WeekPlanPage.url, WeekPlanPage.text)
 
         # 加速或减速的判断
@@ -294,7 +300,7 @@ class Flight_Planning_Sub_System:
                 the_url = current_random + 'ILinkListener-tabs-panel-newFlight-flightPlanning-flight.planning.form-segmentsContainer-segments-0-speeds~set~max'
             else:
                 the_url = current_random + 'ILinkListener-tabs-panel-newFlight-flightPlanning-flight.planning.form-segmentsContainer-segments-0-speeds~set~min'
-            WeekPlanPage = self.logonSession.get(the_url, verify=local_Network_Debug, timeout=10000)
+            WeekPlanPage = self.logonSession.get(the_url, verify=Debug_Allow_HTTPS_Verify, timeout=10000)
             current_random = self.getCurrentRandom(WeekPlanPage.url, WeekPlanPage.text)
 
         def Recursion_GetSpecialID_B(root: bs4_tag):
@@ -373,10 +379,10 @@ class Flight_Planning_Sub_System:
                     t_hour_header.update(self.logonSession.headers.copy())
                     self.logonSession.post(current_random + t_hour_url, headers=t_hour_header,
                                            data={'segmentSettings:0:newDeparture:hours': str(t_hours)},
-                                           verify=local_Network_Debug)
+                                           verify=Debug_Allow_HTTPS_Verify)
                     flag_update_hour = True
                 SlotsResponse = self.logonSession.post(current_random + t_url, headers=t_header,
-                                                       verify=local_Network_Debug,
+                                                       verify=Debug_Allow_HTTPS_Verify,
                                                        data={'segmentSettings:0:newDeparture:minutes': str(t_minute)})
                 # 得到的结果是XML里夹的HTML表格的一部分，被去掉了<table>标签
                 check_slots = self.checkDepartureAndArrivalSlots('<table>%s</table>' %
@@ -404,7 +410,7 @@ class Flight_Planning_Sub_System:
                                  'segmentsContainer:segments:0:departure-offsets:6:departureOffset': '0'})
         t_url = 'IFormSubmitListener-tabs-panel-newFlight-flightPlanning-flight.planning.form'
         last_result = self.logonSession.post(current_random + t_url, data=second_post_data,
-                                             verify=local_Network_Debug, timeout=10000)
+                                             verify=Debug_Allow_HTTPS_Verify, timeout=10000)
         # 建立了一条新航线
         return {'AirplaneURL': last_result.url, 'LastResponse': last_result,
                 'AllowAutoFlightPlan': self.checkMaintenanceRatio(last_result.text),
@@ -471,7 +477,7 @@ class Flight_Planning_Sub_System:
         if isinstance(LastResponse, Response):
             FlightPlanPage = LastResponse
         else:
-            FlightPlanPage = self.logonSession.get(AirplaneURL, verify=local_Network_Debug, timeout=10000)
+            FlightPlanPage = self.logonSession.get(AirplaneURL, verify=Debug_Allow_HTTPS_Verify, timeout=10000)
         current_random = self.getCurrentRandom(FlightPlanPage.url, FlightPlanPage.text)
         t_url = 'IFormSubmitListener-tabs-panel-visualFlightPlan-action'
         post_data = {'select': str(UserSelect)}
@@ -492,7 +498,7 @@ class Flight_Planning_Sub_System:
             if isinstance(unit, bs4_tag):
                 Recursion_GetSpecialID(unit)
         t_url = current_random + t_url
-        self.logonSession.post(t_url, data=post_data, verify=local_Network_Debug, timeout=10000)
+        self.logonSession.post(t_url, data=post_data, verify=Debug_Allow_HTTPS_Verify, timeout=10000)
 
     # 信息披露函数定义区
     def listServiceInfo(self):
@@ -552,8 +558,8 @@ class Flight_Planning_Sub_System:
 
     # UI友好函数
     def MakeSingleFlightPlan(self, SrcAirport: str, DstAirport: str, Price: int, Service: str,
-                             callback_AskQuestion=None, DepartureTime: str = '', TerminalConfig: tuple = ('T1', 'T1'),
-                             speed_config: str = 'Normal'):
+                             DepartureTime: str = '', TerminalConfig: tuple = ('T1', 'T1'),
+                             speed_config: str = 'Normal', callback_AskQuestion=None):
         """
         根据更通俗易懂的描述转换为程序设置
         :param speed_config: 速度设置
@@ -629,7 +635,8 @@ class Flight_Planning_Sub_System:
                                       configList[0].get('Price'), configList[0].get('Service'),
                                       configList[0].get('Hour'), configList[0].get('Minute'),
                                       SrcTerminal=configList[0].get('SrcTerminal'),
-                                      DstTerminal=configList[0].get('DstTerminal'))
+                                      DstTerminal=configList[0].get('DstTerminal'),
+                                      SpeedConfig=configList[0].get('Speed'))
         flag_UnusableSlots = False
         for line in configList[1:]:
             if not t1.get('AllowAutoFlightPlan'):
@@ -644,7 +651,7 @@ class Flight_Planning_Sub_System:
             t1 = self.BuildNewAirlinePlan(AirplaneURL, line.get('Src'), line.get('Dst'), line.get('Price'),
                                           line.get('Service'), line.get('Hour'), line.get('Minute'),
                                           SrcTerminal=line.get('SrcTerminal'), DstTerminal=line.get('DstTerminal'),
-                                          LastResponse=t1.get('LastResponse'))
+                                          LastResponse=t1.get('LastResponse'), SpeedConfig=line.get('Speed'))
         if t1.get('UnusableSlots'):
             self.callback_printLogs('航班%s在排程%s到%s遇到了时刻表异常，无法解决。排程已结束，但未执行。' % (
                 self.cache_search_fleets.get(AirplaneURL, {}).get('NickName', ''),
