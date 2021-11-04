@@ -1,3 +1,4 @@
+import urllib.request
 from json import loads as json_loads
 from urllib.parse import quote
 
@@ -37,9 +38,8 @@ except:
     Debug_Allow_HTTPS_Verify = True
 
 # 代理设置获取
-import urllib.request
-
-LocalProxier = urllib.request.getproxies()
+LocalProxier = {'http': '', 'https': ''}
+LocalProxier.update(urllib.request.getproxies())
 
 
 def LoginAirlineSim(ServerName: str, UserName: str, Passwd: str) -> Session:

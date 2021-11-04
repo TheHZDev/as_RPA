@@ -1,3 +1,4 @@
+import urllib.request
 from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup
@@ -12,9 +13,9 @@ except:
     Debug_Allow_HTTPS_Verify = True
 
 # 系统代理感知
-import urllib.request
 
-LocalProxier = urllib.request.getproxies()
+LocalProxier = {'http': '', 'https': ''}
+LocalProxier.update(urllib.request.getproxies())
 
 
 class Flight_Planning_Sub_System:
