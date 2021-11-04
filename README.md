@@ -114,10 +114,12 @@ PreLogin = LoginAirlineSim(ServerName, MyUserName, MyPasswd)
 FleetManager = Flight_Planning_Sub_System(PreLogin, ServerName)
 Scheme_B_AAA = FleetManager.Experimental_MakeFlightPlanConfig('HKG-REP-HKG', ['Standard'], [150], '16:07')
 ToManageFleets = FleetManager.SearchFleets()
-for FleetURL in ToManageFleets.keys():
-  if ToManageFleets.get(FleetURL).get('NickName') == 'B-AAA':
-    FleetManager.UI_AutoMakeFlightPlan(FleetURL, Scheme_B_AAA)
-FleetManager.close()
+try:
+  for FleetURL in ToManageFleets.keys():
+    if ToManageFleets.get(FleetURL).get('NickName') == 'B-AAA':
+      FleetManager.UI_AutoMakeFlightPlan(FleetURL, Scheme_B_AAA)
+finally:
+  FleetManager.close()
 ```
 
 如果一切顺利且没有出错，您的航机将会排班成功，如您遇到了这样或那样的问题，欢迎使用GitHub的Issue向我提问。
@@ -148,9 +150,9 @@ Thread(target=CalcService.thread_getAirplanePrice).start()
 while len(CalcService.cache_AirCompanyURL) > 0 or not CalcService.flag_price_ok:
   sleep(30)
 sleep(10)
-print('企业名称\t\t\t资产数额')
+print('企业名称\t资产数额')
 for line in CalcService.CalcBalanceSheet():
-  print('%s\t\t\t%.2f' % (line[0], line[1] / 1000))
+  print('%s\t%.2f K AS$' % (line[0], line[1] / 1000))
 ```
 
 如果您知悉航机数据表有更新，请删除生成的数据库文件（.sqlite）以降低程序出错概率。  

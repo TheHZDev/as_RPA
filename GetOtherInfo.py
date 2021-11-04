@@ -1,3 +1,4 @@
+import json
 import sqlite3
 from threading import Thread
 from time import sleep
@@ -10,7 +11,7 @@ max_thread_workers = 5
 basic_header = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:93.0) Gecko/20100101 Firefox/93.0'}
 
 
-def retry_request(url: str, timeout: int = 60, retry_cooldown=5, retry_times=3, data=None):
+def retry_request(url: str, timeout: int = 60, retry_cooldown: int = 5, retry_times: int = 3, data=None):
     """
     规范化网络连接尝试规程，以解决HTTPS连接慢及服务器垃圾问题
     :param url: 要连接的目标URL，以GET的方式连接
@@ -41,6 +42,57 @@ def DeleteALLChar(html_str: str) -> str:
     while '  ' in html_str:  # 双空格合并为一个空格
         html_str = html_str.replace('  ', ' ')
     return html_str.replace('> <', '><')  # 去除标签之间的空格
+
+
+class ConfigManager:
+
+    @staticmethod
+    def CreateSQL():
+        create_sql = """
+        CREATE TABLE IF NOT EXISTS ConfigManager(
+            Module TEXT PRIMARY KEY,
+            JSON_Config TEXT
+        );
+        """
+        return create_sql
+
+    @staticmethod
+    def SaveConfig(DBPath: str, ModuleName: str, Config: dict) -> bool:
+        t_sql = sqlite3.connect(DBPath)
+        flag_success = True
+        create_sql = """
+        CREATE TABLE IF NOT EXISTS ConfigManager(
+            Module TEXT PRIMARY KEY,
+            JSON_Config TEXT
+        );
+        """
+        t_sql.execute(create_sql)  # 出于便携化的要求
+        try:
+            Config = json.dumps(Config)
+            select_sql = "SELECT COUNT(*) FROM ConfigManager WHERE Module = ?;"
+            insert_sql = "INSERT INTO ConfigManager VALUES(?, ?);"
+            update_sql = "UPDATE ConfigManager SET JSON_Config = ? WHERE Module = ?;"
+            if t_sql.execute(select_sql, (ModuleName,)).fetchone()[0] == 1:
+                t_sql.execute(update_sql, (Config, ModuleName))
+            else:
+                t_sql.execute(insert_sql, (ModuleName, Config))
+            t_sql.commit()
+        except:
+            flag_success = False
+        finally:
+            t_sql.close()
+            return flag_success
+
+    @staticmethod
+    def LoadConfig(DBPath: str, ModuleName: str) -> dict:
+        Config = {}
+        t_sql = sqlite3.connect(DBPath)
+        try:
+            select_sql = "SELECT JSON_Config FROM ConfigManager WHERE Module = ?;"
+            Config = json.loads(t_sql.execute(select_sql, (ModuleName,)).fetchone()[0])
+        finally:
+            t_sql.close()
+            return Config
 
 
 class CalcAirplaneProperty:
@@ -303,6 +355,9 @@ class CalcAirplaneProperty:
                 t_sql.commit()
                 self.callback_outputLog('已完成对航机 %s 家族的爬取。' % line)
             t_sql.close()
+            target_url = 'https://sar.simulogics.games/api/sessions/' + \
+                         logonSession.cookies.get('as-sid').split('_')[0]
+            logonSession.delete(target_url)  # 自动注销会话
         self.flag_price_ok = True
 
     @staticmethod
@@ -440,12 +495,21 @@ class GetAirportInfo:
         self.errorURL = '/app/wicket/page'  # URL后缀
         self.DBPath = ServerName + '.sqlite'
         self.DB_Init()
-        for i in range(1, max_thread_workers + 1):
-            Thread(target=self.thread_getAirportInfo, args=(i,)).start()
+        # 判断机场信息以及有无更新
+        t_sql = sqlite3.connect(self.DBPath)
+        t1 = t_sql.execute('SELECT COUNT(*) FROM AirportInfo;').fetchone()[0]
+        t_sql.close()
+        if t1 == 0 or self.DetectAirportUpdate_Basic():
+            self.DB_TRUNCATE()
+            for i in range(1, max_thread_workers + 1):
+                Thread(target=self.thread_getAirportInfo, args=(i,)).start()
+        else:
+            print('未检测到更新，且已爬取数据。若上次未能正常退出，请执行DB_TRUNCATE函数以初始化。')
 
     def DB_Init(self):
         create_sql = """
         CREATE TABLE IF NOT EXISTS AirportInfo(
+            AirportID INTEGER,
             Time_Zone INTEGER,
             IATA TEXT,
             ICAO TEXT,
@@ -462,8 +526,27 @@ class GetAirportInfo:
             Cargo INTEGER
         );
         """
+        # AirportID - 机场的登记ID，这个是为了日后定制更新机场信息而设计
+        # Time_Zone - 时区，以UTC时间作为标定
+        # IATA - 国际航空运输协会（International Air Transport Association）代码
+        # ICAO - 国际民用航空组织（International Civil Aviation Organization）代码
+        # Country - 机场所在国名称，可惜是英文的
+        # Continent - 国家所在的洲
+        # Runway - 跑道长度，单位是米
+        # Airport_Size - 机场大小
+        # Slots_per_five_minutes - 每5分钟的时间带
+        # Slot_Availability - 时间带可用百分比，应该是指示机场的繁忙程度
+        # Min_transfer_time - 最小转机时间，如果这个值是-1，则表明机场禁止转机
+        # Nighttime_ban - 有无宵禁
+        # Noise_restrictions - 有无噪声管制
+        # Passengers - 客运需求条
+        # Cargo - 货运需求条
         t_sql = sqlite3.connect(self.DBPath)
         t_sql.execute(create_sql)
+        t_sql.close()
+
+    def DB_TRUNCATE(self):
+        t_sql = sqlite3.connect(self.DBPath)
         t_sql.execute("DELETE FROM AirportInfo;")
         t_sql.commit()
         t_sql.close()
@@ -494,7 +577,7 @@ class GetAirportInfo:
                 self.thread_getAirportInfo(flag_found)  # 节省线程使用量
             return
         # 具体执行
-        insert_sql = "INSERT INTO AirportInfo VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?);"
+        insert_sql = "INSERT INTO AirportInfo VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);"
         t_dict = {"Time_Zone": 0, "IATA_Code": '', "ICAO_Code": '', "Country": '', "Continent": '', "Runway": 0,
                   "Airport_Size": '', "Slots_per_five_minutes": 0, "Slot_Availability": 0, "Min_transfer_time": -1,
                   "Nighttime_ban": 0, "Noise_restrictions": 0, "Passengers": 0, "Cargo": 0}
@@ -548,11 +631,11 @@ class GetAirportInfo:
             if isinstance(unit, bs4_Tag):
                 Recursion_ParseAirportInfo(unit)
         t_sql = sqlite3.connect(self.DBPath)
-        t_sql.execute(insert_sql, (
-            t_dict["Time_Zone"], t_dict["IATA_Code"], t_dict["ICAO_Code"], t_dict["Country"], t_dict["Continent"],
-            t_dict["Runway"], t_dict["Airport_Size"], t_dict["Slots_per_five_minutes"], t_dict["Slot_Availability"],
-            t_dict["Min_transfer_time"], t_dict["Nighttime_ban"], t_dict["Noise_restrictions"], t_dict["Passengers"],
-            t_dict["Cargo"]))
+        t_sql.execute(insert_sql, (AirportNumber, t_dict["Time_Zone"], t_dict["IATA_Code"], t_dict["ICAO_Code"],
+                                   t_dict["Country"], t_dict["Continent"], t_dict["Runway"], t_dict["Airport_Size"],
+                                   t_dict["Slots_per_five_minutes"], t_dict["Slot_Availability"],
+                                   t_dict["Min_transfer_time"], t_dict["Nighttime_ban"], t_dict["Noise_restrictions"],
+                                   t_dict["Passengers"], t_dict["Cargo"]))
         t_sql.commit()
         t_sql.close()
         print('对机场 %s 信息抓取完成。' % t_dict["IATA_Code"])
@@ -560,3 +643,25 @@ class GetAirportInfo:
 
     def DetectFinish(self):
         return len(self.flag_finish) == max_thread_workers
+
+    def DetectAirportUpdate_Basic(self) -> bool:
+        """检测机场信息是否有更新，目前比较简单，只获取最新的一个文件名。"""
+        LatestFile = ['']
+
+        def Recursion_GetLatestChangelogFileName(root: bs4_Tag):
+            if root.name == 'a' and 'airport-data-changelog' in root.attrs.get('href', '').lower():
+                LatestFile[0] = root.attrs.get('href')  # 有一定风险，如果日期不是按照从上到下的顺序排列时
+            for t_unit in root.children:
+                if isinstance(t_unit, bs4_Tag):
+                    Recursion_GetLatestChangelogFileName(t_unit)
+
+        for unit in BeautifulSoup(retry_request('https://www.airlinesim.aero/blog/files/').text, 'html5lib'):
+            if isinstance(unit, bs4_Tag):
+                Recursion_GetLatestChangelogFileName(unit)
+        t1 = ConfigManager.LoadConfig(self.DBPath, 'GetAirportInfo')
+        if t1.get('LatestAirportInfo', '') != LatestFile[0]:
+            t1.update({'LatestAirportInfo': LatestFile[0]})
+            ConfigManager.SaveConfig(self.DBPath, 'GetAirportInfo', t1)
+            return True
+        else:
+            return False
