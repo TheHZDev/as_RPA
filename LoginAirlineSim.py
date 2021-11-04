@@ -36,6 +36,11 @@ try:
 except:
     Debug_Allow_HTTPS_Verify = True
 
+# 代理设置获取
+import urllib.request
+
+LocalProxier = urllib.request.getproxies()
+
 
 def LoginAirlineSim(ServerName: str, UserName: str, Passwd: str) -> Session:
     if ServerName not in ServerMap.keys():
@@ -44,23 +49,24 @@ def LoginAirlineSim(ServerName: str, UserName: str, Passwd: str) -> Session:
     login_session = Session()
     login_session.headers[
         'User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:93.0) Gecko/20100101 Firefox/93.0'
-    login_session.get(login_fin_url, timeout=10000, verify=Debug_Allow_HTTPS_Verify)  # 第一步，直接连接目标URL
+    login_session.get(login_fin_url, timeout=10000, verify=Debug_Allow_HTTPS_Verify,
+                      proxies=LocalProxier)  # 第一步，直接连接目标URL
     login_session.cookies['_sl_lp'] = quote(login_fin_url)
     login_session.headers['Referer'] = login_fin_url
     login_session.get('https://accounts.airlinesim.aero/auth/login?od=' + login_fin_url,
-                      verify=Debug_Allow_HTTPS_Verify)
+                      verify=Debug_Allow_HTTPS_Verify, proxies=LocalProxier)
     # 构造提交数据，这里就不OPTIONS了
     post_json = {'login': UserName, 'password': Passwd, 'persistent': False, 'method': 'password', 'brand': 'as',
                  'metadata': {'landingPage': login_fin_url}}
     login_session.headers['Origin'] = 'https://accounts.airlinesim.aero'
     login_result = login_session.post('https://sar.simulogics.games/api/sessions', json=post_json, timeout=10000,
-                                      verify=Debug_Allow_HTTPS_Verify)
+                                      verify=Debug_Allow_HTTPS_Verify, proxies=LocalProxier)
     if login_result.status_code == 201:
         t1: dict = json_loads(login_result.text)
         t_header = login_session.headers
         t_header['Authorization'] = 'Bearer ' + t1.get('token')
         login_session.get('https://sar.simulogics.games/api/sessions/' + t1.get('id'), headers=t_header,
-                          timeout=10000, verify=Debug_Allow_HTTPS_Verify)
+                          timeout=10000, verify=Debug_Allow_HTTPS_Verify, proxies=LocalProxier)
         login_session.cookies['as-sid'] = t1.get('token')
         login_session.get(login_fin_url)  # 登陆过程结束
         return login_session

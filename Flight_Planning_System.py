@@ -11,6 +11,11 @@ try:
 except:
     Debug_Allow_HTTPS_Verify = True
 
+# 系统代理感知
+import urllib.request
+
+LocalProxier = urllib.request.getproxies()
+
 
 class Flight_Planning_Sub_System:
     # logonSession = None
@@ -40,15 +45,15 @@ class Flight_Planning_Sub_System:
         """请使用该函数注销AirlineSim会话"""
         target_url = 'https://sar.simulogics.games/api/sessions/' + \
                      self.logonSession.cookies.get('as-sid').split('_')[0]
-        self.logonSession.delete(target_url)
+        self.logonSession.delete(target_url, proxies=LocalProxier)
 
     def SearchFleets(self) -> dict:
         # 搜索需要进行排班的航机，已经在执行飞行任务的（绿色）、已排班但未执行的（黄色）、航班出现了问题的（红色）将会被跳过
         target_url = self.baseURL + '/app/fleets'
         fleetsInfo = {}
         FleetsPage = BeautifulSoup(
-            self.DeleteALLChar(self.logonSession.get(target_url, verify=Debug_Allow_HTTPS_Verify, timeout=10000).text),
-            'html5lib')
+            self.DeleteALLChar(self.logonSession.get(target_url, verify=Debug_Allow_HTTPS_Verify,
+                                                     timeout=10000).text, proxies=LocalProxier), 'html5lib')
 
         def Recursion_GetFleetsInfo(root: bs4_tag):
             if root.attrs.get('title', '') in ('Flight Planning', '排程') and \
@@ -80,8 +85,8 @@ class Flight_Planning_Sub_System:
             return self.cache_SubCompany
         MainPage = BeautifulSoup(
             self.DeleteALLChar(
-                self.logonSession.get(self.baseURL, verify=Debug_Allow_HTTPS_Verify, timeout=10000).text),
-            'html5lib')
+                self.logonSession.get(self.baseURL, verify=Debug_Allow_HTTPS_Verify, timeout=10000,
+                                      proxies=LocalProxier).text), 'html5lib')
 
         def Recursion_GetCompanyInfo(root: bs4_tag):
             if root.attrs.get('href', '').startswith('../../app/enterprise/dashboard?select='):
@@ -118,7 +123,8 @@ class Flight_Planning_Sub_System:
     # 实际操作部分
     def BuildAirlineInfoCache(self, AirplaneURL: str):
         # 进入排程管理界面，获取有关机队的机场信息、服务信息，经过对比，这些信息似乎是静态的
-        FleetsPage = self.logonSession.get(AirplaneURL, verify=Debug_Allow_HTTPS_Verify, timeout=10000)
+        FleetsPage = self.logonSession.get(AirplaneURL, verify=Debug_Allow_HTTPS_Verify, timeout=10000,
+                                           proxies=LocalProxier)
 
         def Recursion_GetBasicInfo(root: bs4_tag):
             if root.name == 'select':
@@ -149,7 +155,8 @@ class Flight_Planning_Sub_System:
                         'Wicket-FocusedElementId':
                             FleetsPage.text.split(t_url + '"')[1].split('"c":"')[1].split('"')[0]}
             t_url = current_random + t_url + '&_=%d' % self.getTimestamp()
-            NewAirlinePage = self.logonSession.get(t_url, verify=Debug_Allow_HTTPS_Verify, headers=t_header)
+            NewAirlinePage = self.logonSession.get(t_url, verify=Debug_Allow_HTTPS_Verify, headers=t_header,
+                                                   proxies=LocalProxier)
             # 这还是XML文档里夹了一个HTML文档
             t_text = self.DeleteALLChar(NewAirlinePage.text.split(']]></component>')[0].split('><![CDATA[')[1])
             for unit in BeautifulSoup(t_text, 'html5lib'):
@@ -186,7 +193,8 @@ class Flight_Planning_Sub_System:
         if isinstance(LastResponse, Response):
             AirlineManagerPage = LastResponse  # 可重复使用的Response
         else:
-            AirlineManagerPage = self.logonSession.get(AirplaneURL, verify=Debug_Allow_HTTPS_Verify, timeout=10000)
+            AirlineManagerPage = self.logonSession.get(AirplaneURL, verify=Debug_Allow_HTTPS_Verify, timeout=10000,
+                                                       proxies=LocalProxier)
         current_random = self.getCurrentRandom(AirlineManagerPage.url, AirlineManagerPage.text)
         self.logonSession.headers['Referer'] = AirlineManagerPage.url
         # 获取可用航班号
@@ -200,7 +208,7 @@ class Flight_Planning_Sub_System:
                             AirlineManagerPage.text.split(t_url_1 + '"')[1].split('"c":"')[1].split('"')[0]}
             t_url_1 = current_random + t_url_1 + '&_=%d' % self.getTimestamp()
             AirlineManagerPage = self.logonSession.get(t_url_1, verify=Debug_Allow_HTTPS_Verify, headers=t_header,
-                                                       timeout=10000)
+                                                       timeout=10000, proxies=LocalProxier)
         if '><![CDATA[' in AirlineManagerPage.text:
             AirlineManagerPage_text = AirlineManagerPage.text.split(']]></component>')[0].split('><![CDATA[')[1]
         else:
@@ -211,7 +219,8 @@ class Flight_Planning_Sub_System:
                         AirlineManagerPage.text.split(t_url + '"')[1].split('"c":"')[1].split('"')[0]}
         t_header.update(self.logonSession.headers.copy())
         t_url = current_random + t_url + '&_=%d' % self.getTimestamp()
-        t_page = self.logonSession.get(t_url, headers=t_header, verify=Debug_Allow_HTTPS_Verify, timeout=10000)
+        t_page = self.logonSession.get(t_url, headers=t_header, verify=Debug_Allow_HTTPS_Verify, timeout=10000,
+                                       proxies=LocalProxier)
         # 返回页面是XML里夹了个html，先把HTML搞出来
         t_page_text = self.DeleteALLChar(t_page.text.split(']]></component>')[0].split('><![CDATA[')[1])
         AirlineNumber = [-1]
@@ -275,7 +284,7 @@ class Flight_Planning_Sub_System:
         # 填充数据成功
         t_url = current_random + t_url
         WeekPlanPage = self.logonSession.post(t_url, data=first_post_data, verify=Debug_Allow_HTTPS_Verify,
-                                              timeout=10000)
+                                              timeout=10000, proxies=LocalProxier)
         self.logonSession.headers['Referer'] = WeekPlanPage.url
         current_random = self.getCurrentRandom(WeekPlanPage.url, WeekPlanPage.text)
         second_post_data = {'segmentSettings:0:originTerminal': '', 'segmentSettings:0:destinationTerminal': '',
@@ -300,7 +309,8 @@ class Flight_Planning_Sub_System:
                 the_url = current_random + 'ILinkListener-tabs-panel-newFlight-flightPlanning-flight.planning.form-segmentsContainer-segments-0-speeds~set~max'
             else:
                 the_url = current_random + 'ILinkListener-tabs-panel-newFlight-flightPlanning-flight.planning.form-segmentsContainer-segments-0-speeds~set~min'
-            WeekPlanPage = self.logonSession.get(the_url, verify=Debug_Allow_HTTPS_Verify, timeout=10000)
+            WeekPlanPage = self.logonSession.get(the_url, verify=Debug_Allow_HTTPS_Verify, timeout=10000,
+                                                 proxies=LocalProxier)
             current_random = self.getCurrentRandom(WeekPlanPage.url, WeekPlanPage.text)
 
         def Recursion_GetSpecialID_B(root: bs4_tag):
@@ -377,7 +387,7 @@ class Flight_Planning_Sub_System:
                                      'Wicket-FocusedElementId':
                                          WeekPlanPage.text.split(t_hour_url + '"')[1].split('"c":"')[1].split('"')[0]}
                     t_hour_header.update(self.logonSession.headers.copy())
-                    self.logonSession.post(current_random + t_hour_url, headers=t_hour_header,
+                    self.logonSession.post(current_random + t_hour_url, headers=t_hour_header, proxies=LocalProxier,
                                            data={'segmentSettings:0:newDeparture:hours': str(t_hours)},
                                            verify=Debug_Allow_HTTPS_Verify)
                     flag_update_hour = True
@@ -409,7 +419,7 @@ class Flight_Planning_Sub_System:
                                  'segmentsContainer:segments:0:departure-offsets:5:departureOffset': '0',
                                  'segmentsContainer:segments:0:departure-offsets:6:departureOffset': '0'})
         t_url = 'IFormSubmitListener-tabs-panel-newFlight-flightPlanning-flight.planning.form'
-        last_result = self.logonSession.post(current_random + t_url, data=second_post_data,
+        last_result = self.logonSession.post(current_random + t_url, data=second_post_data, proxies=LocalProxier,
                                              verify=Debug_Allow_HTTPS_Verify, timeout=10000)
         # 建立了一条新航线
         return {'AirplaneURL': last_result.url, 'LastResponse': last_result,
@@ -477,7 +487,8 @@ class Flight_Planning_Sub_System:
         if isinstance(LastResponse, Response):
             FlightPlanPage = LastResponse
         else:
-            FlightPlanPage = self.logonSession.get(AirplaneURL, verify=Debug_Allow_HTTPS_Verify, timeout=10000)
+            FlightPlanPage = self.logonSession.get(AirplaneURL, verify=Debug_Allow_HTTPS_Verify, timeout=10000,
+                                                   proxies=LocalProxier)
         current_random = self.getCurrentRandom(FlightPlanPage.url, FlightPlanPage.text)
         t_url = 'IFormSubmitListener-tabs-panel-visualFlightPlan-action'
         post_data = {'select': str(UserSelect)}
@@ -498,7 +509,8 @@ class Flight_Planning_Sub_System:
             if isinstance(unit, bs4_tag):
                 Recursion_GetSpecialID(unit)
         t_url = current_random + t_url
-        self.logonSession.post(t_url, data=post_data, verify=Debug_Allow_HTTPS_Verify, timeout=10000)
+        self.logonSession.post(t_url, data=post_data, verify=Debug_Allow_HTTPS_Verify, timeout=10000,
+                               proxies=LocalProxier)
 
     # 信息披露函数定义区
     def listServiceInfo(self):
