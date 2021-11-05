@@ -54,7 +54,7 @@ class Flight_Planning_Sub_System:
         fleetsInfo = {}
         FleetsPage = BeautifulSoup(
             self.DeleteALLChar(self.logonSession.get(target_url, verify=Debug_Allow_HTTPS_Verify,
-                                                     timeout=10000).text, proxies=LocalProxier), 'html5lib')
+                                                     timeout=10000, proxies=LocalProxier).text), 'html5lib')
 
         def Recursion_GetFleetsInfo(root: bs4_tag):
             if root.attrs.get('title', '') in ('Flight Planning', '排程') and \
