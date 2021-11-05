@@ -729,10 +729,8 @@ class IntelligentRecommendation:
         t1 = self.CalcAirportDistance(SrcAirport_IATA, airport_list[0][0], airport_list[0][1])
         for i in range(1, len(airport_list) + 1):
             cache_result[airport_list[i - 1][0]] = t1.get('First')
-            try:
+            if airport_list[i - 1][1] is not None:
                 cache_result[airport_list[i - 1][1]] = t1.get('Second')
-            except KeyError:  # 字典引用None的时候会报出来，这个时候其实流程已经结束了
-                break
             if i == len(airport_list):
                 break
             t1 = self.CalcAirportDistance(SrcAirport_IATA, airport_list[i][0], airport_list[i][1],
@@ -803,11 +801,16 @@ class IntelligentRecommendation:
         for unit in BeautifulSoup(DeleteALLChar(result.text), 'html5lib').children:
             if isinstance(unit, bs4_Tag):
                 Recursion_GetAirportDistance(unit)
-        if result_dict['First'] > 0:
+        if result_dict['First'] > 0 and (SecondDstAirport_IATA is None or
+                                         (isinstance(SecondDstAirport_IATA, str) and result_dict['Second'] > 0)):
             print('航程%s - %s计算完成，航程为 %d km。' % (SrcAirport_IATA, FirstDstAirport_IATA, result_dict['First']))
             if isinstance(SecondDstAirport_IATA, str):
                 print('航程%s - %s计算完成，航程为 %d km。' % (SrcAirport_IATA, SecondDstAirport_IATA,
                                                     result_dict['Second']))
+        elif isinstance(SecondDstAirport_IATA, str) and result_dict['Second'] == 0:
+            # 蠢材AS忽略了第二个参数一次，那没办法，重新来一次吧
+            result_dict = self.CalcAirportDistance(SrcAirport_IATA, FirstDstAirport_IATA,
+                                                   SecondDstAirport_IATA, result_dict['LastResponse'])
         elif self.retry_times_CalcAirportDistance < 3:
             # 直接进行一个智能回退，以解决AS的错误竞争问题
             self.retry_times_CalcAirportDistance += 1
