@@ -208,3 +208,4 @@ Scheme_P_257 = [
   FleetManager.MakeSingleFlightPlan('SYD', 'PEK', 80, 'ServiceD', '', ('T5', 'T1'), 'Normal')
 ]
 ```
+**（注意：以上航班均为演示需要而随机使用了机场和时间，请勿直接照搬到游戏排班中！！！）**
