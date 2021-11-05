@@ -673,6 +673,8 @@ class GetAirportInfo:
 
 
 class IntelligentRecommendation:
+    cache_IATA_to_AirportName = {}
+    retry_times_CalcAirportDistance = 0
 
     def __init__(self, ServerName: str, UserName: str, Passwd: str):
         from LoginAirlineSim import LoginAirlineSim, getBaseURL
@@ -700,9 +702,10 @@ class IntelligentRecommendation:
         airport_list = []
         t_number = 1
         for airport in t_sql.execute(select_sql).fetchall():
+            self.cache_IATA_to_AirportName[airport[0]] = airport[1]
             if airport[0] == SrcAirport_IATA:
                 continue
-            cache_result[airport[0]] = airport[1]
+            cache_result[airport[0]] = 0
             # 缓存机场名字池
             t_list.append(airport[0])
             if t_number % 2 == 0:
@@ -723,8 +726,7 @@ class IntelligentRecommendation:
         t_sql.commit()
         t_sql.close()
         # 开始安排航程计算工具
-        t1 = self.CalcAirportDistance(SrcAirport_IATA, cache_result.get(airport_list[0][0]),
-                                      cache_result.get(airport_list[0][1]))  # 填入机场全称，免得一堆破事
+        t1 = self.CalcAirportDistance(SrcAirport_IATA, airport_list[0][0], airport_list[0][1])
         for i in range(1, len(airport_list) + 1):
             cache_result[airport_list[i - 1][0]] = t1.get('First')
             try:
@@ -758,13 +760,13 @@ class IntelligentRecommendation:
         if isinstance(LastResponse, requests.Response) and '/app/com/routes/evaluation' in LastResponse.url:
             firstResponse = LastResponse
         else:
-            firstResponse = self.logonSession.get(self.baseURL + '/app/com/routes/evaluation', verify=False)
-        FirstDstAirport_IATA = FirstDstAirport_IATA.upper()
-        SrcAirport_IATA = SrcAirport_IATA.upper()
-        post_data = {'url': '', 'stops:0:airport': FirstDstAirport_IATA, 'stops:1:airport': SrcAirport_IATA}
+            firstResponse = self.logonSession.get(self.baseURL + '/app/com/routes/evaluation')
+        post_data = {'url': '',
+                     'stops:0:airport': self.cache_IATA_to_AirportName.get(FirstDstAirport_IATA, FirstDstAirport_IATA),
+                     'stops:1:airport': self.cache_IATA_to_AirportName.get(SrcAirport_IATA, SrcAirport_IATA)}
         if isinstance(SecondDstAirport_IATA, str):
-            SecondDstAirport_IATA = SecondDstAirport_IATA.upper()
-            post_data.update({'stops:2:airport': SecondDstAirport_IATA})
+            post_data.update({'stops:2:airport': self.cache_IATA_to_AirportName.get(SecondDstAirport_IATA,
+                                                                                    SecondDstAirport_IATA)})
 
         def Recursion_GetCurrentRandom(root: bs4_Tag):
             if root.name == 'form' and 'IFormSubmitListener-route~definition~form' in root.attrs.get('action', ''):
@@ -779,9 +781,9 @@ class IntelligentRecommendation:
             if isinstance(unit, bs4_Tag):
                 Recursion_GetCurrentRandom(unit)
         post_url = post_data.pop('url')
-        result = self.logonSession.post(post_url, post_data, verify=False)
+        result = self.logonSession.post(post_url, post_data)
         result_dict = {'First': 0, 'Second': 0, 'LastResponse': result}
-        first_dist_key = '../scheduling/' + FirstDstAirport_IATA + SrcAirport_IATA
+        first_dist_key = '../scheduling/' + FirstDstAirport_IATA.upper() + SrcAirport_IATA.upper()
 
         def Recursion_GetAirportDistance(root: bs4_Tag):
             if root.name == 'a' and root.attrs.get('href', '') == first_dist_key:
@@ -789,7 +791,8 @@ class IntelligentRecommendation:
                     root.parent.parent.contents[6].getText().replace('km', '').replace(',', '').strip())
                 return
             elif isinstance(SecondDstAirport_IATA, str) and root.name == 'a' and \
-                    ('../scheduling/' + SrcAirport_IATA + SecondDstAirport_IATA) == root.attrs.get('href', ''):
+                    ('../scheduling/' + SrcAirport_IATA.upper() +
+                     SecondDstAirport_IATA.upper()) == root.attrs.get('href', ''):
                 result_dict['Second'] = int(
                     root.parent.parent.contents[6].getText().replace('km', '').replace(',', '').strip())
                 return
@@ -800,4 +803,15 @@ class IntelligentRecommendation:
         for unit in BeautifulSoup(DeleteALLChar(result.text), 'html5lib').children:
             if isinstance(unit, bs4_Tag):
                 Recursion_GetAirportDistance(unit)
+        if result_dict['First'] > 0:
+            print('航程%s - %s计算完成，航程为 %d km。' % (SrcAirport_IATA, FirstDstAirport_IATA, result_dict['First']))
+            if isinstance(SecondDstAirport_IATA, str):
+                print('航程%s - %s计算完成，航程为 %d km。' % (SrcAirport_IATA, SecondDstAirport_IATA,
+                                                    result_dict['Second']))
+        elif self.retry_times_CalcAirportDistance < 3:
+            # 直接进行一个智能回退，以解决AS的错误竞争问题
+            self.retry_times_CalcAirportDistance += 1
+            result_dict = self.CalcAirportDistance(SrcAirport_IATA, FirstDstAirport_IATA,
+                                                   SecondDstAirport_IATA, result_dict['LastResponse'])
+        self.retry_times_CalcAirportDistance = 0
         return result_dict
