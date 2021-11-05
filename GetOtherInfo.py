@@ -510,6 +510,7 @@ class GetAirportInfo:
         create_sql = """
         CREATE TABLE IF NOT EXISTS AirportInfo(
             AirportID INTEGER,
+            AirportName TEXT,
             Time_Zone INTEGER,
             IATA TEXT,
             ICAO TEXT,
@@ -577,10 +578,10 @@ class GetAirportInfo:
                 self.thread_getAirportInfo(flag_found)  # 节省线程使用量
             return
         # 具体执行
-        insert_sql = "INSERT INTO AirportInfo VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);"
+        insert_sql = "INSERT INTO AirportInfo VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);"
         t_dict = {"Time_Zone": 0, "IATA_Code": '', "ICAO_Code": '', "Country": '', "Continent": '', "Runway": 0,
                   "Airport_Size": '', "Slots_per_five_minutes": 0, "Slot_Availability": 0, "Min_transfer_time": -1,
-                  "Nighttime_ban": 0, "Noise_restrictions": 0, "Passengers": 0, "Cargo": 0}
+                  "Nighttime_ban": 0, "Noise_restrictions": 0, "Passengers": 0, "Cargo": 0, "AirportName": ''}
 
         def Recursion_ParseAirportInfo(root: bs4_Tag):
             if root.name == 'td':
@@ -623,6 +624,9 @@ class GetAirportInfo:
                 elif root.getText() in ('貨物', 'Cargo'):
                     t_dict["Cargo"] = int(root.parent.contents[1].contents[0].attrs.get('title'). \
                                           replace('demand:', '').strip())
+            elif root.name == 'h1' and ('Airport:' in root.getText() or '機場: ' in root.getText()):
+                t_dict["AirportName"] = root.getText().split(':')[1].split('(')[0].strip()
+                return
             for t_unit in root.children:
                 if isinstance(t_unit, bs4_Tag):
                     Recursion_ParseAirportInfo(t_unit)
@@ -631,9 +635,10 @@ class GetAirportInfo:
             if isinstance(unit, bs4_Tag):
                 Recursion_ParseAirportInfo(unit)
         t_sql = sqlite3.connect(self.DBPath)
-        t_sql.execute(insert_sql, (AirportNumber, t_dict["Time_Zone"], t_dict["IATA_Code"], t_dict["ICAO_Code"],
-                                   t_dict["Country"], t_dict["Continent"], t_dict["Runway"], t_dict["Airport_Size"],
-                                   t_dict["Slots_per_five_minutes"], t_dict["Slot_Availability"],
+        t_sql.execute(insert_sql, (AirportNumber, t_dict["AirportName"], t_dict["Time_Zone"], t_dict["IATA_Code"],
+                                   t_dict["ICAO_Code"], t_dict["Country"], t_dict["Continent"], t_dict["Runway"],
+                                   t_dict["Airport_Size"], t_dict["Slots_per_five_minutes"],
+                                   t_dict["Slot_Availability"],
                                    t_dict["Min_transfer_time"], t_dict["Nighttime_ban"], t_dict["Noise_restrictions"],
                                    t_dict["Passengers"], t_dict["Cargo"]))
         t_sql.commit()
@@ -665,3 +670,134 @@ class GetAirportInfo:
             return True
         else:
             return False
+
+
+class IntelligentRecommendation:
+
+    def __init__(self, ServerName: str, UserName: str, Passwd: str):
+        from LoginAirlineSim import LoginAirlineSim, getBaseURL
+        self.logonSession = LoginAirlineSim(ServerName, UserName, Passwd)
+        self.DBPath = ServerName + '.sqlite'
+        self.baseURL = getBaseURL(ServerName)
+
+    def Close(self):
+        target_url = 'https://sar.simulogics.games/api/sessions/' + \
+                     self.logonSession.cookies.get('as-sid').split('_')[0]
+        self.logonSession.delete(target_url)
+        self.logonSession = None
+
+    def Customization_CalcAirportDistance(self, SrcAirport_IATA: str):
+        """
+        定制版的机场距离函数，以所给机场作为中心机场，计算它到每个客运或货运至少有 5 需求的机场之间的距离。
+        数据默认写入数据库中，本函数不作返回。
+        :param SrcAirport_IATA: 机场的IATA代码，即常见的三字母
+        """
+        SrcAirport_IATA = SrcAirport_IATA.upper()
+        t_sql = sqlite3.connect(self.DBPath)
+        select_sql = "SELECT IATA, AirportName FROM AirportInfo WHERE Passengers >= 5 OR Cargo >= 5;"
+        cache_result = {}
+        t_list = []
+        airport_list = []
+        t_number = 1
+        for airport in t_sql.execute(select_sql).fetchall():
+            if airport[0] == SrcAirport_IATA:
+                continue
+            cache_result[airport[0]] = airport[1]
+            # 缓存机场名字池
+            t_list.append(airport[0])
+            if t_number % 2 == 0:
+                airport_list.append(t_list)
+                t_list = []
+            t_number += 1
+        if len(t_list) == 1:
+            t_list.append(None)
+            airport_list.append(t_list)
+        create_sql = """
+        CREATE TABLE IF NOT EXISTS AirportDistance(
+            Airport_1 TEXT,
+            Airport_2 TEXT,
+            Distance INTEGER
+        );
+        """
+        t_sql.execute(create_sql)
+        t_sql.commit()
+        t_sql.close()
+        # 开始安排航程计算工具
+        t1 = self.CalcAirportDistance(SrcAirport_IATA, cache_result.get(airport_list[0][0]),
+                                      cache_result.get(airport_list[0][1]))  # 填入机场全称，免得一堆破事
+        for i in range(1, len(airport_list) + 1):
+            cache_result[airport_list[i - 1][0]] = t1.get('First')
+            try:
+                cache_result[airport_list[i - 1][1]] = t1.get('Second')
+            except KeyError:  # 字典引用None的时候会报出来，这个时候其实流程已经结束了
+                break
+            if i == len(airport_list):
+                break
+            t1 = self.CalcAirportDistance(SrcAirport_IATA, airport_list[i][0], airport_list[i][1],
+                                          t1.get('LastResponse'))
+        # 航程计算完毕，写入数据库
+        insert_sql = "INSERT INTO AirportDistance VALUES(?,?,?);"
+        t_sql = sqlite3.connect(self.DBPath)
+        for airport in cache_result.keys():
+            if airport is None or len(airport) == 0:
+                continue
+            t_sql.execute(insert_sql, (SrcAirport_IATA, airport, cache_result.get(airport)))
+        t_sql.commit()
+        t_sql.close()
+
+    def CalcAirportDistance(self, SrcAirport_IATA: str, FirstDstAirport_IATA: str, SecondDstAirport_IATA: str = None,
+                            LastResponse: requests.Response = None):
+        """
+        计算一个（或两个）机场到目的机场之间的航程距离
+        :param SrcAirport_IATA: 参与计算的中心机场的IATA代码
+        :param FirstDstAirport_IATA: 第一目的机场的IATA代码
+        :param SecondDstAirport_IATA: 可选，第二目的机场的IATA代码
+        :param LastResponse: 上次的响应包，内部使用
+        :return: {'First': 第一目的机场到中心机场的航程，'Second': 第二目的机场到中心机场的航程, 'LastResponse': ?}
+        """
+        if isinstance(LastResponse, requests.Response) and '/app/com/routes/evaluation' in LastResponse.url:
+            firstResponse = LastResponse
+        else:
+            firstResponse = self.logonSession.get(self.baseURL + '/app/com/routes/evaluation', verify=False)
+        FirstDstAirport_IATA = FirstDstAirport_IATA.upper()
+        SrcAirport_IATA = SrcAirport_IATA.upper()
+        post_data = {'url': '', 'stops:0:airport': FirstDstAirport_IATA, 'stops:1:airport': SrcAirport_IATA}
+        if isinstance(SecondDstAirport_IATA, str):
+            SecondDstAirport_IATA = SecondDstAirport_IATA.upper()
+            post_data.update({'stops:2:airport': SecondDstAirport_IATA})
+
+        def Recursion_GetCurrentRandom(root: bs4_Tag):
+            if root.name == 'form' and 'IFormSubmitListener-route~definition~form' in root.attrs.get('action', ''):
+                post_data['url'] = self.baseURL + '/app/com/routes' + root.attrs.get('action')[1:]
+                post_data[root.contents[0].contents[0].attrs.get('name')] = ''
+                return
+            for t_unit in root.children:
+                if isinstance(t_unit, bs4_Tag):
+                    Recursion_GetCurrentRandom(t_unit)
+
+        for unit in BeautifulSoup(DeleteALLChar(firstResponse.text), 'html5lib').children:
+            if isinstance(unit, bs4_Tag):
+                Recursion_GetCurrentRandom(unit)
+        post_url = post_data.pop('url')
+        result = self.logonSession.post(post_url, post_data, verify=False)
+        result_dict = {'First': 0, 'Second': 0, 'LastResponse': result}
+        first_dist_key = '../scheduling/' + FirstDstAirport_IATA + SrcAirport_IATA
+
+        def Recursion_GetAirportDistance(root: bs4_Tag):
+            if root.name == 'a' and root.attrs.get('href', '') == first_dist_key:
+                result_dict['First'] = int(
+                    root.parent.parent.contents[6].getText().replace('km', '').replace(',', '').strip())
+                return
+            elif isinstance(SecondDstAirport_IATA, str) and root.name == 'a' and \
+                    ('../scheduling/' + SrcAirport_IATA + SecondDstAirport_IATA) == root.attrs.get('href', ''):
+                result_dict['Second'] = int(
+                    root.parent.parent.contents[6].getText().replace('km', '').replace(',', '').strip())
+                return
+            for t_unit in root.children:
+                if isinstance(t_unit, bs4_Tag):
+                    Recursion_GetAirportDistance(t_unit)
+
+        for unit in BeautifulSoup(DeleteALLChar(result.text), 'html5lib').children:
+            if isinstance(unit, bs4_Tag):
+                Recursion_GetAirportDistance(unit)
+        return result_dict
