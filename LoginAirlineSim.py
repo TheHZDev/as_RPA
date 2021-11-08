@@ -7,7 +7,7 @@ from requests import Session
 __all__ = ['ServerMap', 'LoginAirlineSim', 'getBaseURL']
 
 ServerMap = {'Yeager': 'https://yeager.airlinesim.aero/action/portal/index',
-             'Junker': 'https://junkers.airlinesim.aero/action/portal/index',
+             'Junkers': 'https://junkers.airlinesim.aero/action/portal/index',
              'Quimby': 'https://quimby.airlinesim.aero/action/portal/index',
              'Bleriot': 'https://bleriot.airlinesim.aero/action/portal/index',
              'Limatambo': 'https://limatambo.airlinesim.aero/action/portal/index',
@@ -70,6 +70,10 @@ def LoginAirlineSim(ServerName: str, UserName: str, Passwd: str) -> Session:
         login_session.cookies['as-sid'] = t1.get('token')
         login_session.get(login_fin_url)  # 登陆过程结束
         return login_session
+    elif login_result.status_code == 400 and 'authentication_failure' in login_result.text:
+        raise Exception('认证失败，用户名或密码错误。')
+    elif login_result.status_code == 429:
+        raise Exception('认证失败，同时存在的会话太多，可能存在封号现象。')
     else:
         raise Exception('用户名或密码错误，请重试。HTTP（%d）状态码异常。' % login_result.status_code)
 

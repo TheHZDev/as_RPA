@@ -25,6 +25,7 @@ class Flight_Planning_Sub_System:
     cache_AirportInfo = {}
     cache_ServiceInfo = {}
     cache_search_fleets = {}
+    cache_airport_terminal_dict = {}
     default_service_name = ''
     const_speed_config = {'Min': 0, 'Normal': 1, 'Max': 2}  # 速度常规设置
 
@@ -92,7 +93,7 @@ class Flight_Planning_Sub_System:
         def Recursion_GetCompanyInfo(root: bs4_tag):
             if root.attrs.get('href', '').startswith('../../app/enterprise/dashboard?select='):
                 id_sub_company = root.attrs.get('href').replace('../../app/enterprise/dashboard?select=', '')
-                self.cache_SubCompany[root.contents[0].getText()] = id_sub_company
+                self.cache_SubCompany[root.contents[0].getText().strip()] = id_sub_company
                 return
             for unit in root.children:
                 if isinstance(unit, bs4_tag):
@@ -102,6 +103,59 @@ class Flight_Planning_Sub_System:
             if isinstance(unit_1, bs4_tag):
                 Recursion_GetCompanyInfo(unit_1)
         return self.cache_SubCompany
+
+    def SearchTerminalInfo(self):
+        """
+        步骤：
+        1、进入航站管理界面，搜索带有容量的航站的机场页作为搜索点位。
+        2、进入对应机场，选择“航站”Tab，然后根据模式进行匹配。（中文和英文匹配都需要处理，还需要忽略默认航站楼）
+        """
+        target_url = self.baseURL + '/app/ops/stations'
+        first_result = self.logonSession.get(target_url, verify=Debug_Allow_HTTPS_Verify, proxies=LocalProxier)
+        first_cache = {}
+
+        def Recursion_GetAirportPageURL(root: bs4_tag):
+            if root.name == 'tr' and root.parent.name == 'tbody':
+                if root.contents[7].contents[0].getText() != '0':
+                    # 获取到有额外航站楼信息
+                    airport_url = ''
+                    airport_simple_name = ''
+                    for t_unit in root.contents[2].children:
+                        if isinstance(t_unit, bs4_tag):
+                            if t_unit.name == 'a':
+                                airport_url = self.baseURL + '/app' + t_unit.attrs.get('href')[2:]
+                            elif t_unit.name == 'span':
+                                airport_simple_name = t_unit.getText()
+                    first_cache[self.SearchAirportNameBySimpleName(airport_simple_name)] = airport_url
+                return
+            for t_unit in root.children:
+                if isinstance(t_unit, bs4_tag):
+                    Recursion_GetAirportPageURL(t_unit)
+
+        for unit in BeautifulSoup(self.DeleteALLChar(first_result.text), 'html5lib').children:
+            if isinstance(unit, bs4_tag):
+                Recursion_GetAirportPageURL(unit)
+
+        # 获取了需要抓取航站楼的机场信息
+
+        def Recursion_ParseTerminalInfo(root: bs4_tag, airport_name: str):
+            if root.name == 'th':
+                cache_text = root.getText()
+                if ('第' in cache_text and '航廈' in cache_text and cache_text != '第 1 航廈') or \
+                        ('Terminal' in cache_text and 'Payload' not in cache_text and cache_text != 'Terminal 1'):
+                    self.cache_airport_terminal_dict[airport_name].append('T' + cache_text.split()[1])
+            for t_unit in root.children:
+                if isinstance(t_unit, bs4_tag):
+                    Recursion_ParseTerminalInfo(t_unit, airport_name)
+
+        for airport in first_cache.keys():
+            self.logonSession.get(first_cache.get(airport), verify=Debug_Allow_HTTPS_Verify, proxies=LocalProxier)
+            second_result = self.logonSession.get(first_cache.get(airport) + '?tabs=4', verify=Debug_Allow_HTTPS_Verify,
+                                                  proxies=LocalProxier)
+            self.cache_airport_terminal_dict[airport] = []  # 先建立缓存
+            for unit in BeautifulSoup(self.DeleteALLChar(second_result.text), 'html5lib').children:
+                if isinstance(unit, bs4_tag):
+                    Recursion_ParseTerminalInfo(unit, airport)
 
     def SwitchSubCompany(self, CompanyName: str) -> bool:
         # 切换公司，这主要是通过直接修改Cookie中的'airlinesim-selectedEnterpriseId-'变量来实现的
@@ -529,6 +583,10 @@ class Flight_Planning_Sub_System:
         for unit in self.listAirportInfo():
             if simpleName in unit:
                 return unit
+        if len(simpleName) == 3:
+            return simpleName
+        else:
+            return ''
 
     # 辅助函数定义区
     @staticmethod
@@ -560,12 +618,14 @@ class Flight_Planning_Sub_System:
                 if len(t1) > 0:  # 发现可用航班
                     for AirFleet_URL in t1.keys():
                         self.BuildAirlineInfoCache(AirFleet_URL)  # 尝试建立缓存信息
+                        self.SearchTerminalInfo()
                         return True
         else:  # 如果只有一家公司，是搜不到子公司的
             t1 = self.SearchFleets()
             if len(t1) > 0:  # 发现可用航班
                 for AirFleet_URL in t1.keys():
                     self.BuildAirlineInfoCache(AirFleet_URL)  # 尝试建立缓存信息
+                    self.SearchTerminalInfo()
                     return True
         return False
 
@@ -633,6 +693,11 @@ class Flight_Planning_Sub_System:
                 DepartureMinute = int(DepartureTime[1])
             except ValueError:
                 raise Exception('请输入正确的时间数字，不要夹带字母等非数字！')
+        if (TerminalConfig[0] != 'T1' and TerminalConfig[0] not in self.cache_airport_terminal_dict.get(SrcAirport,
+                                                                                                        [])) or \
+                (TerminalConfig[1] != 'T1' and TerminalConfig[1] not in self.cache_airport_terminal_dict.get(DstAirport,
+                                                                                                             [])):
+            raise Exception('默认航站楼选择错误！')
         return {'Src': SrcAirport, 'Dst': DstAirport, 'Price': Price, 'Service': Service,
                 'Hour': DepartureHour, 'Minute': DepartureMinute, 'SrcTerminal': TerminalConfig[0],
                 'DstTerminal': TerminalConfig[1], 'Speed': self.const_speed_config.get(speed_config, 1)}
