@@ -13,7 +13,7 @@
 
 ### 准备使用
 
-在使用本项目前，您可能需要先安装 [Python3](https://www.python.org/downloads/release/python-397/) 环境。  
+在使用本项目前，您可能需要先安装 [Python3](https://www.python.org/downloads/release/python-398/) 环境。  
 以及使用pip安装以下的包：
 
 ```shell
@@ -112,9 +112,9 @@ ServerName = input('要登陆的服务器名是：')
 
 PreLogin = LoginAirlineSim(ServerName, MyUserName, MyPasswd)
 FleetManager = Flight_Planning_Sub_System(PreLogin, ServerName)
-Scheme_B_AAA = FleetManager.Experimental_MakeFlightPlanConfig('HKG-REP-HKG', ['Standard'], [150], '16:07')
-ToManageFleets = FleetManager.SearchFleets()
 try:
+  Scheme_B_AAA = FleetManager.Experimental_MakeFlightPlanConfig('HKG-REP-HKG', ['Standard'], [150], '16:07')
+  ToManageFleets = FleetManager.SearchFleets()
   for FleetURL in ToManageFleets.keys():
     if ToManageFleets.get(FleetURL).get('NickName') == 'B-AAA':
       FleetManager.UI_AutoMakeFlightPlan(FleetURL, Scheme_B_AAA)

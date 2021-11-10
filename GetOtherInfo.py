@@ -1,7 +1,8 @@
 import json
 import sqlite3
 from threading import Thread
-from time import sleep
+from time import sleep, time
+from urllib.request import getproxies
 
 import requests
 from bs4 import BeautifulSoup
@@ -9,6 +10,8 @@ from bs4.element import Tag as bs4_Tag
 
 max_thread_workers = 5
 basic_header = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:93.0) Gecko/20100101 Firefox/93.0'}
+LocalProxier = {'http': '', 'https': ''}
+LocalProxier.update(getproxies())
 
 
 def retry_request(url: str, timeout: int = 60, retry_cooldown: int = 5, retry_times: int = 3, data=None):
@@ -27,9 +30,27 @@ def retry_request(url: str, timeout: int = 60, retry_cooldown: int = 5, retry_ti
     for i in range(retry_times):
         try:
             if data is None:
-                return requests.get(url, timeout=timeout, headers=basic_header)
+                return requests.get(url, timeout=timeout, headers=basic_header, proxies=LocalProxier)
             else:
-                return requests.post(url, data=data, timeout=timeout, headers=basic_header)
+                return requests.post(url, data=data, timeout=timeout, headers=basic_header, proxies=LocalProxier)
+        except requests.exceptions.ConnectTimeout:
+            print('连接出错，将在 %d 秒后再次重试。' % retry_cooldown)
+            sleep(retry_cooldown)
+    return requests.Response()
+
+
+def retry_request_Session(session: requests.Session, url: str, timeout: int = 60, retry_cooldown: int = 5,
+                          retry_times: int = 3, data=None):
+    if timeout < 1:
+        timeout = 60
+    retry_cooldown = max(5, retry_cooldown)
+    retry_times = max(3, retry_times)
+    for i in range(retry_times):
+        try:
+            if data is None:
+                return session.get(url, timeout=timeout, proxies=LocalProxier)
+            else:
+                return session.post(url, data=data, timeout=timeout, proxies=LocalProxier)
         except requests.exceptions.ConnectTimeout:
             print('连接出错，将在 %d 秒后再次重试。' % retry_cooldown)
             sleep(retry_cooldown)
@@ -202,7 +223,7 @@ class CalcAirplaneProperty:
                 break
             if isinstance(unit, bs4_Tag):
                 Recursion_GetAllCountryID(unit)
-        print('抓取国家索引完成，第一阶段结束。')
+        self.callback_outputLog('抓取国家索引完成，第一阶段结束。')
         for i in range(max_thread_workers):
             Thread(target=self.thread_getAirplaneInfo).start()
 
@@ -675,8 +696,18 @@ class GetAirportInfo:
 class IntelligentRecommendation:
     cache_IATA_to_AirportName = {}
     retry_times_CalcAirportDistance = 0
+    cache_DB_FlightScheduleInfo = []  # 待写入数据库的航班缓存数据
+    thread_lock_GetFlightScheduleInfo = []  # 线程锁定池，获取航班时刻表数据线程池专用
+    cache_input_ORS_Src_Dst_Airport = []  # ORS系统查询池，主要是出发到目的
+    cache_DB_ORSData = []  # 抓取的ORS数据
+    thread_lock_ParseORSRatingAndPriceData = []  # ORS线程锁
 
     def __init__(self, ServerName: str, UserName: str, Passwd: str):
+        """
+        智能航班推荐，目前仅提供了基于客运需求量的推荐算法。
+        基于客运量和需求量的推荐 - 客运需求>=5或货运需求>=5 - 由（Q：269826429）提供
+        基于航程距离的推荐 - 航班距离 in [6000, 6500] - 由（Q：1252066431）提供
+        """
         from LoginAirlineSim import LoginAirlineSim, getBaseURL
         self.logonSession = LoginAirlineSim(ServerName, UserName, Passwd)
         self.DBPath = ServerName + '.sqlite'
@@ -810,11 +841,307 @@ class IntelligentRecommendation:
         elif isinstance(SecondDstAirport_IATA, str) and result_dict['Second'] == 0:
             # 蠢材AS忽略了第二个参数一次，那没办法，重新来一次吧
             result_dict = self.CalcAirportDistance(SrcAirport_IATA, FirstDstAirport_IATA,
-                                                   SecondDstAirport_IATA, result_dict['LastResponse'])
+                                                   SecondDstAirport_IATA, result)
         elif self.retry_times_CalcAirportDistance < 3:
             # 直接进行一个智能回退，以解决AS的错误竞争问题
             self.retry_times_CalcAirportDistance += 1
             result_dict = self.CalcAirportDistance(SrcAirport_IATA, FirstDstAirport_IATA,
-                                                   SecondDstAirport_IATA, result_dict['LastResponse'])
+                                                   SecondDstAirport_IATA, result)
         self.retry_times_CalcAirportDistance = 0
         return result_dict
+
+    def thread_GetFlightInfoManager(self):
+        """
+        航班信息爬取系统管理器，管理器将按照以下步骤执行：
+        1、抓取所有公司的连接并暂存在列表中。
+        2、抓取每个公司的航班时刻表数据，这部分是多线程。
+        航班管理器在此期间执行数据库连接池作用。
+        3、分析数据并抓取每个航班在线上订位系统的数据，这部分将尝试多线程。
+        航班管理器在此期间执行数据库连接池作用。
+        """
+        t_sql = sqlite3.connect(self.DBPath)
+        from datetime import datetime
+        current_Date = datetime.now().strftime('%Y%m%d')
+        create_sql = """
+        CREATE TABLE IF NOT EXISTS FlightScheduleInfo_%s(
+            Airline TEXT PRIMARY KEY,
+            AirCompany TEXT,
+            AirType TEXT,
+            SrcAirport TEXT,
+            DepartureTime TEXT,
+            DstAirport TEXT,
+            ArrivalTime TEXT,
+            Monday INTEGER,
+            Tuesday INTEGER,
+            Wednesday INTEGER,
+            Thursday INTEGER,
+            Friday INTEGER,
+            Saturday INTEGER,
+            Sunday INTEGER,
+            IsCargoFlight INTEGER
+        );
+        """ % current_Date
+        t_sql.execute(create_sql)
+        t_sql.close()
+        # 单线程抓取公司URL数据
+        cache_AirCompanyIndex = self.GetAllAirCompanyIndex()
+        for AirCompanyName in cache_AirCompanyIndex.keys():
+            Thread(target=self.thread_GetFlightScheduleInfoFromAirCompany,
+                   args=(cache_AirCompanyIndex.get(AirCompanyName), AirCompanyName)).start()
+        # 多线程运行启动，进入数据库管理规程
+        insert_sql = "INSERT INTO FlightScheduleInfo_%s VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);" % current_Date
+        while True:
+            if len(self.thread_lock_GetFlightScheduleInfo) >= len(cache_AirCompanyIndex) and \
+                    len(self.cache_DB_FlightScheduleInfo) == 0:
+                break
+            t_sql = sqlite3.connect(self.DBPath)
+            while len(self.cache_DB_FlightScheduleInfo) > 0:
+                t_sql.execute(insert_sql, self.cache_DB_FlightScheduleInfo.pop())
+            t_sql.commit()
+            t_sql.close()
+            sleep(10)
+        # 数据库管理规程结束
+        self.thread_lock_GetFlightScheduleInfo.clear()
+        # 测试对ORS系统的访问
+        usable_test = self.logonSession.get(self.baseURL + '/app/info/ors')
+        if '/app/info/ors' not in usable_test.url:
+            print('ORS（Online Reservation System，在线订位系统）无法访问，无法获取评分及价格信息。')
+            return
+        t_sql = sqlite3.connect(self.DBPath)
+        select_sql = "SELECT DISTINCT SrcAirport, DstAirport FROM FlightScheduleInfo_%s;" % current_Date
+        self.cache_input_ORS_Src_Dst_Airport = t_sql.execute(select_sql).fetchall()
+        create_sql = """
+        CREATE TABLE IF NOT EXISTS ORSRatingAndPrice_%s(
+            AirlineCode TEXT,
+            CargoPrice INTEGER,
+            CargoRating INTEGER,
+            EconomyPrice INTEGER,
+            EconomyRating INTEGER,
+            BusinessPrice INTEGER,
+            BusinessRating INTEGER,
+            FirstCabinRating INTEGER,
+            FirstCabinPrice INTEGER
+        );
+        """ % current_Date
+        t_sql.execute(create_sql)
+        t_sql.close()
+        insert_sql = "INSERT INTO ORSRatingAndPrice_%s VALUES(?,?,?,?,?,?,?,?,?);" % current_Date
+        Thread(target=self.thread_ParseORSRatingAndPriceData).start()
+        # 解析
+        while True:
+            if len(self.thread_lock_ParseORSRatingAndPriceData) == 1 and \
+                    len(self.cache_DB_ORSData) == 0:
+                break
+            t_sql = sqlite3.connect(self.DBPath)
+            while len(self.cache_DB_ORSData) > 0:
+                t_sql.execute(insert_sql, self.cache_DB_ORSData.pop())
+            t_sql.commit()
+            t_sql.close()
+            sleep(10)
+        self.thread_lock_ParseORSRatingAndPriceData.clear()
+        print('对各公司的航机信息及ORS系统评分抓取完成！')
+
+    def thread_GetFlightScheduleInfoFromAirCompany(self, AirCompanyURL: str, AirCompanyName: str = None):
+        """具体抓取给定航空公司的航班时刻表数据，数据将存档并写入数据库。"""
+        try:
+            t_Session = requests.Session()
+            t_Session.headers.update(basic_header)
+            result = retry_request_Session(t_Session, AirCompanyURL + '?tab=3')
+            from urllib.parse import urlparse
+            next_url = 'https://' + urlparse(AirCompanyURL).netloc + '/app/info/enterprises' + \
+                       result.text.split('window.location.href=&#039;.')[1].split('&#039;')[0] + '0'
+            result = retry_request_Session(t_Session, next_url)
+            t_Session.close()
+
+            # 将航班时间切换到UTC时间以统一
+
+            def Recursion_ParseFlightSchedule(root: bs4_Tag):
+                if root.name == 'tbody':
+                    SrcAirport = ''
+                    DstAirport = ''
+                    for t_unit in root.contents[0].contents[0].children:
+                        if isinstance(t_unit, bs4_Tag) and t_unit.name == 'span' and len(t_unit.attrs) == 0:
+                            SrcAirport = t_unit.getText()
+                            break
+                    for t_unit in root.contents[0].contents[2].children:
+                        if isinstance(t_unit, bs4_Tag) and t_unit.name == 'span' and len(t_unit.attrs) == 0:
+                            DstAirport = t_unit.getText()
+                            break
+                    for line in root.contents[3:]:
+                        AirlineCode = line.contents[0].getText()  # 航班代号
+                        # 接下来解析飞行计划
+                        WeekPlan = [1, 1, 1, 1, 1, 1, 1]
+                        pre_flight_plan = list(line.contents[1].getText())
+                        for weekday in range(7):
+                            if pre_flight_plan[weekday] == '_':
+                                WeekPlan[weekday] = 0
+                        # 解析飞行计划完成
+                        DepartureTime = line.contents[2].getText()
+                        ArrivalTime = line.contents[3].getText()
+                        AirType = line.contents[4].contents[0].contents[0].getText()
+                        AirCompany = line.contents[5].contents[0].getText()
+                        if line.contents[6].getText().strip().upper() == 'CARGO FLIGHT':
+                            IsCargoFlight = 1
+                        else:
+                            IsCargoFlight = 0
+                        self.cache_DB_FlightScheduleInfo.append((AirlineCode, AirCompany, AirType, SrcAirport,
+                                                                 DepartureTime, DstAirport, ArrivalTime,
+                                                                 WeekPlan[0], WeekPlan[1], WeekPlan[2], WeekPlan[3],
+                                                                 WeekPlan[4], WeekPlan[5], WeekPlan[6], IsCargoFlight))
+                    return
+                for t_unit in root.children:
+                    if isinstance(t_unit, bs4_Tag):
+                        Recursion_ParseFlightSchedule(t_unit)
+
+            for unit in BeautifulSoup(DeleteALLChar(result.text), 'html5lib').children:
+                if isinstance(unit, bs4_Tag):
+                    Recursion_ParseFlightSchedule(unit)
+            if isinstance(AirCompanyName, str) and len(AirCompanyName) > 0:
+                print('对公司 %s 的航班时刻表数据抓取完成。' % AirCompanyName)
+        finally:
+            self.thread_lock_GetFlightScheduleInfo.append('OK')
+
+    def thread_ParseORSRatingAndPriceData(self, ScanDeep: tuple = (True, False, False, True), MultiThread: bool = True):
+        """
+        使用存放在类中的cache_input_ORS_Src_Dst_Airport列表中的出发和目的机场，抓取指定航线上的ORS系统数据。
+        :param ScanDeep:  扫描深度，分别代表要扫描的舱位数据，经济舱-商务舱-头等舱-货舱
+        :param MultiThread:  是否以多线程模式运转，默认为是
+        """
+        try:
+            cache_dict = {}
+            baseURL_ORS = self.baseURL + '/app/info/ors'
+            const_cabin_translate = [('Economy', '經濟艙'), ('Business', '商務艙'), ('First', '頭等艙'), ('Cargo', '貨物')]
+            while len(self.cache_input_ORS_Src_Dst_Airport) > 0:
+                start_time = time()
+                SrcAirport, DstAirport = self.cache_input_ORS_Src_Dst_Airport.pop()
+                for scan_unit in range(4):
+                    if not ScanDeep[scan_unit]:
+                        continue
+                    first_result = retry_request_Session(self.logonSession, baseURL_ORS)
+                    first_post_data = {'origin-group:origin-group_body:origin': SrcAirport,
+                                       'destination-group:destination-group_body:destination': DstAirport,
+                                       'departure-group:departure-group_body:departure': '0',
+                                       'arrival-group:arrival-group_body:arrival': '48',
+                                       'ground:useGroundNetwork': 'on'}
+
+                    def Recursion_ParseORSForm(root: bs4_Tag):
+                        if root.name == 'form' and 'IFormSubmitListener-form' in root.attrs.get('action', ''):
+                            first_post_data['post_url'] = self.baseURL + '/app/info' + root.attrs.get('action')[1:]
+                            first_post_data[root.contents[0].contents[0].attrs.get('name')] = ''
+                        elif root.name == 'span' and root.getText().strip() in const_cabin_translate[scan_unit]:
+                            first_post_data[root.parent.contents[0].attrs.get('name')] = \
+                                root.parent.contents[0].attrs.get('value')
+                            return
+                        for t_unit in root.children:
+                            if isinstance(t_unit, bs4_Tag):
+                                Recursion_ParseORSForm(t_unit)
+
+                    for unit in BeautifulSoup(DeleteALLChar(first_result.text), 'html5lib'):
+                        if isinstance(unit, bs4_Tag):
+                            Recursion_ParseORSForm(unit)
+                    # 构建表单数据成功
+                    post_url = first_post_data.pop('post_url')
+                    search_result = retry_request_Session(self.logonSession, post_url, data=first_post_data)
+                    while SrcAirport not in search_result.text and DstAirport not in search_result.text:
+                        # 特殊情况：刷新异常，真的会出现吗？
+                        search_result = retry_request_Session(self.logonSession, post_url, data=first_post_data)
+                    # 分析表单数据
+                    if 'No connections matching your query could be found.' in search_result.text or \
+                            '您的搜尋找不到任何連結。' in search_result.text:
+                        # 找不到数据
+                        continue
+                    elif 'ILinkListener-result-navigation~top-navigation-4-pageLink' in search_result.text:
+                        max_page = 5
+                    elif 'ILinkListener-result-navigation~top-navigation-3-pageLink' in search_result.text:
+                        max_page = 4
+                    elif 'ILinkListener-result-navigation~top-navigation-2-pageLink' in search_result.text:
+                        max_page = 3
+                    elif 'ILinkListener-result-navigation~top-navigation-1-pageLink' in search_result.text:
+                        max_page = 2
+                    else:
+                        max_page = 1
+                    # 解析页码数据完成
+                    for sub_page in range(max_page):
+                        next_url = {}
+                        next_url_prefix = 'ILinkListener-result-navigation~top-navigation-%d-pageLink' % (sub_page + 1)
+
+                        def Recursion_ParseORSRatingAndPrice(root: bs4_Tag):
+                            if root.name == 'a' and next_url_prefix in root.attrs.get('href', ''):
+                                next_url['url'] = self.baseURL + '/app/info' + root.attrs.get('href')[1:]
+                            elif root.name == 'tbody':
+                                t_airline = [[], -1, -1]  # 航线数据，拼接构造航线参数
+
+                                def Recursion_ParseSingleRow(root_1: bs4_Tag):
+                                    if root_1.name == 'a' and '/action/info/flight?id=' in root_1.attrs.get('href', ''):
+                                        t_airline[0].append(root_1.getText().strip())
+                                    elif root_1.name == 'tr' and 'totals' in root_1.attrs.get('class', []):
+                                        t_airline[2] = int(root_1.contents[2].contents[0].attrs.get('title').split()[1])
+                                        t_airline[1] = int(
+                                            root_1.contents[3].getText().replace('AS$', '').replace(',', '').strip())
+                                        return
+                                    for t_unit_1 in root_1.children:
+                                        if isinstance(t_unit_1, bs4_Tag):
+                                            Recursion_ParseSingleRow(t_unit_1)
+
+                                for t_unit in root.children:
+                                    if isinstance(t_unit, bs4_Tag):
+                                        Recursion_ParseSingleRow(t_unit)
+                                # 单行解析完成
+                                AirlineCode = '|'.join(t_airline[0])
+                                if AirlineCode not in cache_dict.keys():
+                                    cache_dict[AirlineCode] = [AirlineCode, -1, -1, -1, -1, -1, -1, -1, -1]
+                                cache_dict[AirlineCode][scan_unit * 2 + 1] = t_airline[1]
+                                cache_dict[AirlineCode][scan_unit * 2 + 2] = t_airline[2]
+                                return
+                            for t_unit in root.children:
+                                if isinstance(t_unit, bs4_Tag):
+                                    Recursion_ParseORSRatingAndPrice(t_unit)
+
+                        for unit in BeautifulSoup(DeleteALLChar(search_result.text), 'html5lib').children:
+                            if isinstance(unit, bs4_Tag):
+                                Recursion_ParseORSRatingAndPrice(unit)
+                        if len(next_url) > 0:
+                            search_result = retry_request_Session(self.logonSession, next_url.get('url'))
+                # 数据收集完成，写入数据库缓存
+                print('机场 %s 至 %s 的航线数据抓取完成，用时 %d 秒。' % (SrcAirport, DstAirport, int(time() - start_time)))
+                for ASCode in cache_dict.keys():
+                    self.cache_DB_ORSData.append(tuple(cache_dict.get(ASCode)))
+                cache_dict.clear()
+        finally:
+            self.thread_lock_ParseORSRatingAndPriceData.append('OK')
+
+    def GetAllAirCompanyIndex(self):
+        """自动抓取和列举航空公司的URL，这些URL可以用作信息搜集，或者举报（？）"""
+        cache_AirCompanyURL = {}
+        cache_FirstLetter = []
+        enterprises_url = self.baseURL + '/app/info/enterprises'
+
+        def Recursion_ParseFirstLetter(root: bs4_Tag):
+            if root.name == 'a' and root.attrs.get('href', '').startswith('./enterprises') and \
+                    'letter=' in root.attrs.get('href', ''):
+                from urllib.parse import urlparse
+                cache_FirstLetter.append(enterprises_url + '?' + urlparse(root.attrs.get('href')).query)
+                return
+            for t_unit in root.children:
+                if isinstance(t_unit, bs4_Tag):
+                    Recursion_ParseFirstLetter(t_unit)
+
+        def Recursion_ParseAirCompanyURL(root: bs4_Tag):
+            if root.name == 'a' and root.attrs.get('href', '').startswith('./enterprises/'):
+                from urllib.parse import urlparse
+                cache_AirCompanyURL[root.getText().strip()] = self.baseURL + '/app/info' + \
+                                                              urlparse(root.attrs.get('href')).path[1:]
+                return
+            for t_unit in root.children:
+                if isinstance(t_unit, bs4_Tag):
+                    Recursion_ParseAirCompanyURL(t_unit)
+
+        for unit in BeautifulSoup(DeleteALLChar(retry_request(enterprises_url).text)).children:
+            if isinstance(unit, bs4_Tag):
+                Recursion_ParseFirstLetter(unit)
+        # 解析了所有字母的索引，准备解析企业数据
+        for letter in cache_FirstLetter:
+            for unit in BeautifulSoup(DeleteALLChar(retry_request(letter).text), 'html5lib').children:
+                if isinstance(unit, bs4_Tag):
+                    Recursion_ParseAirCompanyURL(unit)
+        return cache_AirCompanyURL
