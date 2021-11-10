@@ -12,6 +12,12 @@ max_thread_workers = 5
 basic_header = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:93.0) Gecko/20100101 Firefox/93.0'}
 LocalProxier = {'http': '', 'https': ''}
 LocalProxier.update(getproxies())
+try:
+    from local_debug import flag_Debug
+
+    Debug_Allow_TLS_Verify = not flag_Debug
+except:
+    Debug_Allow_TLS_Verify = True
 
 
 def retry_request(url: str, timeout: int = 60, retry_cooldown: int = 5, retry_times: int = 3, data=None):
@@ -30,9 +36,11 @@ def retry_request(url: str, timeout: int = 60, retry_cooldown: int = 5, retry_ti
     for i in range(retry_times):
         try:
             if data is None:
-                return requests.get(url, timeout=timeout, headers=basic_header, proxies=LocalProxier)
+                return requests.get(url, timeout=timeout, headers=basic_header, proxies=LocalProxier,
+                                    verify=Debug_Allow_TLS_Verify)
             else:
-                return requests.post(url, data=data, timeout=timeout, headers=basic_header, proxies=LocalProxier)
+                return requests.post(url, data=data, timeout=timeout, headers=basic_header, proxies=LocalProxier,
+                                     verify=Debug_Allow_TLS_Verify)
         except requests.exceptions.ConnectTimeout:
             print('连接出错，将在 %d 秒后再次重试。' % retry_cooldown)
             sleep(retry_cooldown)
@@ -48,10 +56,11 @@ def retry_request_Session(session: requests.Session, url: str, timeout: int = 60
     for i in range(retry_times):
         try:
             if data is None:
-                return session.get(url, timeout=timeout, proxies=LocalProxier)
+                return session.get(url, timeout=timeout, proxies=LocalProxier, verify=Debug_Allow_TLS_Verify)
             else:
-                return session.post(url, data=data, timeout=timeout, proxies=LocalProxier)
-        except requests.exceptions.ConnectTimeout:
+                return session.post(url, data=data, timeout=timeout, proxies=LocalProxier,
+                                    verify=Debug_Allow_TLS_Verify)
+        except:
             print('连接出错，将在 %d 秒后再次重试。' % retry_cooldown)
             sleep(retry_cooldown)
     return requests.Response()
@@ -864,7 +873,7 @@ class IntelligentRecommendation:
         current_Date = datetime.now().strftime('%Y%m%d')
         create_sql = """
         CREATE TABLE IF NOT EXISTS FlightScheduleInfo_%s(
-            Airline TEXT PRIMARY KEY,
+            Airline TEXT,
             AirCompany TEXT,
             AirType TEXT,
             SrcAirport TEXT,
@@ -947,9 +956,12 @@ class IntelligentRecommendation:
             t_Session = requests.Session()
             t_Session.headers.update(basic_header)
             result = retry_request_Session(t_Session, AirCompanyURL + '?tab=3')
+            if 'No data available.' in result.text:
+                return
             from urllib.parse import urlparse
             next_url = 'https://' + urlparse(AirCompanyURL).netloc + '/app/info/enterprises' + \
-                       result.text.split('window.location.href=&#039;.')[1].split('&#039;')[0] + '0'
+                       result.text.split("window.location.href=&#039;.")[1].split("&#039;")[0].replace('&amp;',
+                                                                                                       '&') + '0'
             result = retry_request_Session(t_Session, next_url)
             t_Session.close()
 
@@ -963,11 +975,14 @@ class IntelligentRecommendation:
                         if isinstance(t_unit, bs4_Tag) and t_unit.name == 'span' and len(t_unit.attrs) == 0:
                             SrcAirport = t_unit.getText()
                             break
-                    for t_unit in root.contents[0].contents[2].children:
-                        if isinstance(t_unit, bs4_Tag) and t_unit.name == 'span' and len(t_unit.attrs) == 0:
-                            DstAirport = t_unit.getText()
-                            break
-                    for line in root.contents[3:]:
+                    for line in root.contents[2:]:
+                        if 'destination' in line.attrs.get('class', []):
+                            # 检测到了单出发多目的地航班
+                            for t_unit in line.contents[0].children:
+                                if isinstance(t_unit, bs4_Tag) and t_unit.name == 'span' and len(t_unit.attrs) == 0:
+                                    DstAirport = t_unit.getText()
+                                    break
+                            continue
                         AirlineCode = line.contents[0].getText()  # 航班代号
                         # 接下来解析飞行计划
                         WeekPlan = [1, 1, 1, 1, 1, 1, 1]
@@ -1136,7 +1151,7 @@ class IntelligentRecommendation:
                 if isinstance(t_unit, bs4_Tag):
                     Recursion_ParseAirCompanyURL(t_unit)
 
-        for unit in BeautifulSoup(DeleteALLChar(retry_request(enterprises_url).text)).children:
+        for unit in BeautifulSoup(DeleteALLChar(retry_request(enterprises_url).text), 'html5lib').children:
             if isinstance(unit, bs4_Tag):
                 Recursion_ParseFirstLetter(unit)
         # 解析了所有字母的索引，准备解析企业数据
