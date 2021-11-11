@@ -719,6 +719,9 @@ class IntelligentRecommendation:
         """
         from LoginAirlineSim import LoginAirlineSim, getBaseURL
         self.logonSession = LoginAirlineSim(ServerName, UserName, Passwd)
+        self.MultiSession_ServerName = ServerName
+        self.MultiSession_Username = UserName
+        self.MultiSession_Passwd = Passwd
         self.DBPath = ServerName + '.sqlite'
         self.baseURL = getBaseURL(ServerName)
 
@@ -726,7 +729,7 @@ class IntelligentRecommendation:
         target_url = 'https://sar.simulogics.games/api/sessions/' + \
                      self.logonSession.cookies.get('as-sid').split('_')[0]
         self.logonSession.delete(target_url)
-        self.logonSession = None
+        self.logonSession.close()
 
     def Customization_CalcAirportDistance(self, SrcAirport_IATA: str):
         """
@@ -877,8 +880,10 @@ class IntelligentRecommendation:
             AirCompany TEXT,
             AirType TEXT,
             SrcAirport TEXT,
+            SrcAirport_IATA TEXT,
             DepartureTime TEXT,
             DstAirport TEXT,
+            DstAirport_IATA TEXT,
             ArrivalTime TEXT,
             Monday INTEGER,
             Tuesday INTEGER,
@@ -891,34 +896,39 @@ class IntelligentRecommendation:
         );
         """ % current_Date
         t_sql.execute(create_sql)
+        if t_sql.execute("SELECT COUNT(*) FROM FlightScheduleInfo_%s;" % current_Date).fetchone()[0] > 0:
+            flag_Today_Found = True
+        else:
+            flag_Today_Found = False
         t_sql.close()
         # 单线程抓取公司URL数据
-        cache_AirCompanyIndex = self.GetAllAirCompanyIndex()
-        for AirCompanyName in cache_AirCompanyIndex.keys():
-            Thread(target=self.thread_GetFlightScheduleInfoFromAirCompany,
-                   args=(cache_AirCompanyIndex.get(AirCompanyName), AirCompanyName)).start()
-        # 多线程运行启动，进入数据库管理规程
-        insert_sql = "INSERT INTO FlightScheduleInfo_%s VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);" % current_Date
-        while True:
-            if len(self.thread_lock_GetFlightScheduleInfo) >= len(cache_AirCompanyIndex) and \
-                    len(self.cache_DB_FlightScheduleInfo) == 0:
-                break
-            t_sql = sqlite3.connect(self.DBPath)
-            while len(self.cache_DB_FlightScheduleInfo) > 0:
-                t_sql.execute(insert_sql, self.cache_DB_FlightScheduleInfo.pop())
-            t_sql.commit()
-            t_sql.close()
-            sleep(10)
-        # 数据库管理规程结束
-        self.thread_lock_GetFlightScheduleInfo.clear()
+        if not flag_Today_Found:  # 一天一般只抓取一次数据
+            cache_AirCompanyIndex = self.GetAllAirCompanyIndex()
+            for AirCompanyName in cache_AirCompanyIndex.keys():
+                Thread(target=self.thread_GetFlightScheduleInfoFromAirCompany,
+                       args=(cache_AirCompanyIndex.get(AirCompanyName), AirCompanyName)).start()
+            # 多线程运行启动，进入数据库管理规程
+            insert_sql = "INSERT INTO FlightScheduleInfo_%s VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);" % current_Date
+            while True:
+                if len(self.thread_lock_GetFlightScheduleInfo) >= len(cache_AirCompanyIndex) and \
+                        len(self.cache_DB_FlightScheduleInfo) == 0:
+                    break
+                t_sql = sqlite3.connect(self.DBPath)
+                while len(self.cache_DB_FlightScheduleInfo) > 0:
+                    t_sql.execute(insert_sql, self.cache_DB_FlightScheduleInfo.pop())
+                t_sql.commit()
+                t_sql.close()
+                sleep(10)
+            # 数据库管理规程结束
+            self.thread_lock_GetFlightScheduleInfo.clear()
         # 测试对ORS系统的访问
         usable_test = self.logonSession.get(self.baseURL + '/app/info/ors')
         if '/app/info/ors' not in usable_test.url:
             print('ORS（Online Reservation System，在线订位系统）无法访问，无法获取评分及价格信息。')
             return
         t_sql = sqlite3.connect(self.DBPath)
-        select_sql = "SELECT DISTINCT SrcAirport, DstAirport FROM FlightScheduleInfo_%s;" % current_Date
-        self.cache_input_ORS_Src_Dst_Airport = t_sql.execute(select_sql).fetchall()
+        self.cache_input_ORS_Src_Dst_Airport = t_sql.execute(
+            self.diy_GetSpecialAirlineORS('FlightScheduleInfo_%s' % current_Date)).fetchall()
         create_sql = """
         CREATE TABLE IF NOT EXISTS ORSRatingAndPrice_%s(
             AirlineCode TEXT,
@@ -928,17 +938,18 @@ class IntelligentRecommendation:
             EconomyRating INTEGER,
             BusinessPrice INTEGER,
             BusinessRating INTEGER,
-            FirstCabinRating INTEGER,
-            FirstCabinPrice INTEGER
+            FirstCabinPrice INTEGER,
+            FirstCabinRating INTEGER
         );
         """ % current_Date
         t_sql.execute(create_sql)
         t_sql.close()
         insert_sql = "INSERT INTO ORSRatingAndPrice_%s VALUES(?,?,?,?,?,?,?,?,?);" % current_Date
-        Thread(target=self.thread_ParseORSRatingAndPriceData).start()
+        for i in range(max_thread_workers):
+            Thread(target=self.thread_ParseORSRatingAndPriceData).start()
         # 解析
         while True:
-            if len(self.thread_lock_ParseORSRatingAndPriceData) == 1 and \
+            if len(self.thread_lock_ParseORSRatingAndPriceData) == max_thread_workers and \
                     len(self.cache_DB_ORSData) == 0:
                 break
             t_sql = sqlite3.connect(self.DBPath)
@@ -970,18 +981,22 @@ class IntelligentRecommendation:
             def Recursion_ParseFlightSchedule(root: bs4_Tag):
                 if root.name == 'tbody':
                     SrcAirport = ''
+                    SrcAirport_IATA = ''
                     DstAirport = ''
+                    DstAirport_IATA = ''
                     for t_unit in root.contents[0].contents[0].children:
                         if isinstance(t_unit, bs4_Tag) and t_unit.name == 'span' and len(t_unit.attrs) == 0:
                             SrcAirport = t_unit.getText()
-                            break
+                        elif isinstance(t_unit, bs4_Tag) and t_unit.name == 'a':
+                            SrcAirport_IATA = t_unit.getText()
                     for line in root.contents[2:]:
                         if 'destination' in line.attrs.get('class', []):
                             # 检测到了单出发多目的地航班
                             for t_unit in line.contents[0].children:
                                 if isinstance(t_unit, bs4_Tag) and t_unit.name == 'span' and len(t_unit.attrs) == 0:
                                     DstAirport = t_unit.getText()
-                                    break
+                                elif isinstance(t_unit, bs4_Tag) and t_unit.name == 'a':
+                                    DstAirport_IATA = t_unit.getText()
                             continue
                         AirlineCode = line.contents[0].getText()  # 航班代号
                         # 接下来解析飞行计划
@@ -1000,9 +1015,10 @@ class IntelligentRecommendation:
                         else:
                             IsCargoFlight = 0
                         self.cache_DB_FlightScheduleInfo.append((AirlineCode, AirCompany, AirType, SrcAirport,
-                                                                 DepartureTime, DstAirport, ArrivalTime,
-                                                                 WeekPlan[0], WeekPlan[1], WeekPlan[2], WeekPlan[3],
-                                                                 WeekPlan[4], WeekPlan[5], WeekPlan[6], IsCargoFlight))
+                                                                 SrcAirport_IATA, DepartureTime, DstAirport,
+                                                                 DstAirport_IATA, ArrivalTime, WeekPlan[0], WeekPlan[1],
+                                                                 WeekPlan[2], WeekPlan[3], WeekPlan[4], WeekPlan[5],
+                                                                 WeekPlan[6], IsCargoFlight))
                     return
                 for t_unit in root.children:
                     if isinstance(t_unit, bs4_Tag):
@@ -1016,23 +1032,30 @@ class IntelligentRecommendation:
         finally:
             self.thread_lock_GetFlightScheduleInfo.append('OK')
 
-    def thread_ParseORSRatingAndPriceData(self, ScanDeep: tuple = (True, False, False, True), MultiThread: bool = True):
+    def thread_ParseORSRatingAndPriceData(self, ScanDeep: tuple = (False, True, False, False),
+                                          MultiSession: bool = True):
         """
         使用存放在类中的cache_input_ORS_Src_Dst_Airport列表中的出发和目的机场，抓取指定航线上的ORS系统数据。
-        :param ScanDeep:  扫描深度，分别代表要扫描的舱位数据，经济舱-商务舱-头等舱-货舱
-        :param MultiThread:  是否以多线程模式运转，默认为是
+        :param ScanDeep: 扫描深度，分别代表要扫描的舱位数据，货舱-经济舱-商务舱-头等舱
+        :param MultiSession: 是否以多线程模式运转，默认为是
         """
+        if MultiSession:
+            from LoginAirlineSim import LoginAirlineSim
+            t_Session = LoginAirlineSim(self.MultiSession_ServerName, self.MultiSession_Username,
+                                        self.MultiSession_Passwd)
+        else:
+            t_Session = self.logonSession
         try:
             cache_dict = {}
             baseURL_ORS = self.baseURL + '/app/info/ors'
-            const_cabin_translate = [('Economy', '經濟艙'), ('Business', '商務艙'), ('First', '頭等艙'), ('Cargo', '貨物')]
+            const_cabin_translate = [('Cargo', '貨物'), ('Economy', '經濟艙'), ('Business', '商務艙'), ('First', '頭等艙')]
             while len(self.cache_input_ORS_Src_Dst_Airport) > 0:
                 start_time = time()
                 SrcAirport, DstAirport = self.cache_input_ORS_Src_Dst_Airport.pop()
                 for scan_unit in range(4):
                     if not ScanDeep[scan_unit]:
                         continue
-                    first_result = retry_request_Session(self.logonSession, baseURL_ORS)
+                    first_result = retry_request_Session(t_Session, baseURL_ORS)
                     first_post_data = {'origin-group:origin-group_body:origin': SrcAirport,
                                        'destination-group:destination-group_body:destination': DstAirport,
                                        'departure-group:departure-group_body:departure': '0',
@@ -1056,10 +1079,10 @@ class IntelligentRecommendation:
                             Recursion_ParseORSForm(unit)
                     # 构建表单数据成功
                     post_url = first_post_data.pop('post_url')
-                    search_result = retry_request_Session(self.logonSession, post_url, data=first_post_data)
+                    search_result = retry_request_Session(t_Session, post_url, data=first_post_data)
                     while SrcAirport not in search_result.text and DstAirport not in search_result.text:
                         # 特殊情况：刷新异常，真的会出现吗？
-                        search_result = retry_request_Session(self.logonSession, post_url, data=first_post_data)
+                        search_result = retry_request_Session(t_Session, post_url, data=first_post_data)
                     # 分析表单数据
                     if 'No connections matching your query could be found.' in search_result.text or \
                             '您的搜尋找不到任何連結。' in search_result.text:
@@ -1078,7 +1101,8 @@ class IntelligentRecommendation:
                     # 解析页码数据完成
                     for sub_page in range(max_page):
                         next_url = {}
-                        next_url_prefix = 'ILinkListener-result-navigation~top-navigation-%d-pageLink' % (sub_page + 1)
+                        next_url_prefix = 'ILinkListener-result-navigation~top-navigation-%d-pageLink' % (
+                                sub_page + 1)
 
                         def Recursion_ParseORSRatingAndPrice(root: bs4_Tag):
                             if root.name == 'a' and next_url_prefix in root.attrs.get('href', ''):
@@ -1087,12 +1111,15 @@ class IntelligentRecommendation:
                                 t_airline = [[], -1, -1]  # 航线数据，拼接构造航线参数
 
                                 def Recursion_ParseSingleRow(root_1: bs4_Tag):
-                                    if root_1.name == 'a' and '/action/info/flight?id=' in root_1.attrs.get('href', ''):
+                                    if root_1.name == 'a' and '/action/info/flight?id=' in root_1.attrs.get('href',
+                                                                                                            ''):
                                         t_airline[0].append(root_1.getText().strip())
                                     elif root_1.name == 'tr' and 'totals' in root_1.attrs.get('class', []):
-                                        t_airline[2] = int(root_1.contents[2].contents[0].attrs.get('title').split()[1])
+                                        t_airline[2] = int(
+                                            root_1.contents[2].contents[0].attrs.get('title').split()[1])
                                         t_airline[1] = int(
-                                            root_1.contents[3].getText().replace('AS$', '').replace(',', '').strip())
+                                            root_1.contents[3].getText().replace('AS$', '').replace(',',
+                                                                                                    '').strip())
                                         return
                                     for t_unit_1 in root_1.children:
                                         if isinstance(t_unit_1, bs4_Tag):
@@ -1116,13 +1143,18 @@ class IntelligentRecommendation:
                             if isinstance(unit, bs4_Tag):
                                 Recursion_ParseORSRatingAndPrice(unit)
                         if len(next_url) > 0:
-                            search_result = retry_request_Session(self.logonSession, next_url.get('url'))
+                            search_result = retry_request_Session(t_Session, next_url.get('url'))
                 # 数据收集完成，写入数据库缓存
                 print('机场 %s 至 %s 的航线数据抓取完成，用时 %d 秒。' % (SrcAirport, DstAirport, int(time() - start_time)))
                 for ASCode in cache_dict.keys():
                     self.cache_DB_ORSData.append(tuple(cache_dict.get(ASCode)))
                 cache_dict.clear()
         finally:
+            if MultiSession:
+                target_url = 'https://sar.simulogics.games/api/sessions/' + \
+                             t_Session.cookies.get('as-sid').split('_')[0]
+                t_Session.delete(target_url)
+                t_Session.close()
             self.thread_lock_ParseORSRatingAndPriceData.append('OK')
 
     def GetAllAirCompanyIndex(self):
@@ -1160,3 +1192,16 @@ class IntelligentRecommendation:
                 if isinstance(unit, bs4_Tag):
                     Recursion_ParseAirCompanyURL(unit)
         return cache_AirCompanyURL
+
+    @staticmethod
+    def diy_GetSpecialAirlineORS(tableName: str):
+        """这是一个自定义填充机场对数据的函数，勿滥用"""
+        # select_sql = """
+        # SELECT DISTINCT SrcAirport, DstAirport FROM %s
+        # WHERE SrcAirport_IATA IN (SELECT IATA FROM AirportInfo WHERE Passengers = 10) AND
+        # DstAirport_IATA IN (SELECT IATA FROM AirportInfo WHERE Passengers = 10) LIMIT 100;
+        # """ % tableName
+        select_sql = """
+        SELECT DISTINCT SrcAirport, DstAirport FROM %s;
+        """ % tableName
+        return select_sql
