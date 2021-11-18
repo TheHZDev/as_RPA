@@ -68,6 +68,7 @@ def LoginAirlineSim(ServerName: str, UserName: str, Passwd: str) -> Session:
         login_session.get('https://sar.simulogics.games/api/sessions/' + t1.get('id'), headers=t_header,
                           timeout=10000, verify=Debug_Allow_HTTPS_Verify, proxies=LocalProxier)
         login_session.cookies['as-sid'] = t1.get('token')
+        login_session.headers['Origin'] = login_fin_url
         login_session.get(login_fin_url)  # 登陆过程结束
         return login_session
     elif login_result.status_code == 400 and 'authentication_failure' in login_result.text:
