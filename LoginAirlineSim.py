@@ -43,6 +43,13 @@ LocalProxier.update(urllib.request.getproxies())
 
 
 def LoginAirlineSim(ServerName: str, UserName: str, Passwd: str) -> Session:
+    """
+    登陆AS账户，服务器仅用于伪造正常登陆流程。
+    :param ServerName: 服务器名称。
+    :param UserName: 用户名
+    :param Passwd: 密码
+    :return: 登陆成功返回Session，失败抛出错误
+    """
     if ServerName not in ServerMap.keys():
         raise Exception('找不到要登录的服务器。')
     login_fin_url = ServerMap.get(ServerName)

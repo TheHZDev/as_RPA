@@ -1,11 +1,21 @@
+import base64
+import sqlite3
+
 import wx
 
-from LoginAirlineSim import ServerMap
+from LoginAirlineSim import ServerMap, LoginAirlineSim
 
 
 class LoginAirlineSimDialog(wx.Dialog):
 
-    def __init__(self, parent):
+    def __init__(self, parent, DB_Path: str, callback_TransferSession):
+        if callable(callback_TransferSession):
+            self.function_TransferSession = callback_TransferSession
+        else:
+            raise Exception('callback_TransferSession应定义为函数，且按顺序接收一个requests.Session类型的参数和一个str类型的参数。')
+        self.DB_Path = DB_Path
+        # 基本参数判断
+
         wx.Dialog.__init__(self, parent, id=wx.ID_ANY, title=u"登录到AirlineSim", pos=wx.DefaultPosition,
                            size=wx.Size(265, 229), style=wx.DEFAULT_DIALOG_STYLE)
 
@@ -73,27 +83,96 @@ class LoginAirlineSimDialog(wx.Dialog):
         self.Centre(wx.BOTH)
 
         # Connect Events
-        self.InputUserName.Bind(wx.EVT_TEXT, self.InputUserNameOnText)
-        self.InputPassword.Bind(wx.EVT_TEXT, self.InputPasswordOnText)
         self.LoginButton.Bind(wx.EVT_BUTTON, self.LoginButtonOnButtonClick)
         self.ClearTextButton.Bind(wx.EVT_BUTTON, self.ClearTextButtonOnButtonClick)
         self.ExitButton.Bind(wx.EVT_BUTTON, self.ExitButtonOnButtonClick)
+
+        self.LoadPwdFromDB()
 
     def __del__(self):
         pass
 
     # Virtual event handlers, override them in your derived class
-    def InputUserNameOnText(self, event):
-        pass
-
-    def InputPasswordOnText(self, event):
-        pass
-
     def LoginButtonOnButtonClick(self, event):
-        pass
+        if len(self.InputUserName.GetValue()) * len(self.InputPassword.GetValue()) == 0:
+            wx.MessageDialog(self, '用户名或密码不能为空！', '登陆前检查').ShowModal()
+            return
+        elif self.InputServerName.GetSelection() == -1:
+            wx.MessageDialog(self, '请选择要登陆的服务器！', '登陆前检查').ShowModal()
+            return
+        ServerName = self.InputServerName.GetStringSelection()
+        self.LoginProgressTextEntry.SetValue('正在登陆，请稍等。。。')
+        try:
+            LoginSession = LoginAirlineSim(ServerName, self.InputUserName.GetValue(), self.InputPassword.GetValue())
+            # 锁定界面防止重复操作
+            self.LoginButton.Disable()
+            self.ClearTextButton.Disable()
+            self.InputServerName.Disable()
+            self.InputUserName.Disable()
+            self.InputPassword.Disable()
+            # 保存密码
+            if self.IsSavePwd.GetValue():
+                self.SavePwdToDB()
+            self.function_TransferSession(LoginSession, ServerName)
+        except Exception as LoginException:
+            wx.MessageDialog(self, str(LoginException), '登陆失败').ShowModal()
 
     def ClearTextButtonOnButtonClick(self, event):
-        pass
+        self.InputUserName.SetValue('')
+        self.InputPassword.SetValue('')
 
     def ExitButtonOnButtonClick(self, event):
-        pass
+        self.Close(True)
+        import sys
+        sys.exit(0)
+
+    # 内部规程函数
+    def SavePwdToDB(self):
+        create_sql = """
+        CREATE TABLE IF NOT EXISTS LoginAirlineSim(
+            ServerName TEXT,
+            UserName TEXT,
+            Passwd TEXT
+        );
+        """
+        cache_UserName = base64.b64encode(base64.b85encode(self.InputUserName.GetValue().encode())).decode()
+        cache_Passwd = base64.b64encode(base64.b32encode(self.InputPassword.GetValue().encode())).decode()
+        cache_ServerName = self.InputServerName.GetItems()[self.InputServerName.GetSelection()]
+        # 打开数据库
+        insert_sql = "INSERT INTO LoginAirlineSim VALUES(?,?,?);"
+        t_sql = sqlite3.connect(self.DB_Path)
+        t_sql.execute(create_sql)
+        t_sql.execute("DELETE FROM LoginAirlineSim;")
+        t_sql.execute(insert_sql, (cache_ServerName, cache_UserName, cache_Passwd))
+        t_sql.commit()
+        t_sql.close()
+
+    def LoadPwdFromDB(self):
+        create_sql = """
+        CREATE TABLE IF NOT EXISTS LoginAirlineSim(
+            ServerName TEXT,
+            UserName TEXT,
+            Passwd TEXT
+        );
+        """
+        select_sql = "SELECT ServerName,UserName,Passwd FROM LoginAirlineSim;"
+        t_sql = sqlite3.connect(self.DB_Path)
+        t_sql.execute(create_sql)
+        t1 = t_sql.execute(select_sql).fetchall()
+        t_sql.close()
+        try:
+            if len(t1) == 1:
+                ServerName, UserName, Passwd = t1[0]
+                UserName = base64.b85decode(base64.b64decode(UserName.encode())).decode()
+                Passwd = base64.b32decode(base64.b64decode(Passwd.encode())).decode()
+                self.InputServerName.SetSelection(self.InputServerName.GetItems().index(ServerName))
+                self.InputUserName.SetValue(UserName)
+                self.InputPassword.SetValue(Passwd)
+                self.IsSavePwd.SetValue(True)
+        except:
+            # 数据库字段读写失败不影响程序运行
+            pass
+
+    # 外部接口调用
+    def ShowLoginProgress(self, HintText: str):
+        self.LoginProgressTextEntry.SetValue(HintText)

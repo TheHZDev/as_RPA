@@ -139,12 +139,12 @@ class AirplaneBiddingManager(wx.Frame):
 
         bSizer4.Add(gSizer3, 1, wx.EXPAND | wx.ALIGN_CENTER_HORIZONTAL, 5)
 
-        self.IsAutoIncreasePriceWithoutBudgettStrategy = wx.CheckBox(sbSizer2.GetStaticBox(), wx.ID_ANY,
-                                                                     u"无视预算策略直到竞价结束", wx.DefaultPosition,
-                                                                     wx.DefaultSize, 0)
-        self.IsAutoIncreasePriceWithoutBudgettStrategy.SetToolTip(u"有钱，任性！")
+        self.IsAutoIncreasePriceWithoutBudgetStrategy = wx.CheckBox(sbSizer2.GetStaticBox(), wx.ID_ANY,
+                                                                    u"无视预算策略直到竞价结束", wx.DefaultPosition,
+                                                                    wx.DefaultSize, 0)
+        self.IsAutoIncreasePriceWithoutBudgetStrategy.SetToolTip(u"有钱，任性！")
 
-        bSizer4.Add(self.IsAutoIncreasePriceWithoutBudgettStrategy, 0, wx.ALL | wx.ALIGN_CENTER_HORIZONTAL, 5)
+        bSizer4.Add(self.IsAutoIncreasePriceWithoutBudgetStrategy, 0, wx.ALL | wx.ALIGN_CENTER_HORIZONTAL, 5)
 
         sbSizer2.Add(bSizer4, 1, wx.ALIGN_CENTER_HORIZONTAL | wx.EXPAND, 5)
 
@@ -158,7 +158,8 @@ class AirplaneBiddingManager(wx.Frame):
                                                        ConfigDefaultBudgetStrategyChoices, 2, wx.RA_SPECIFY_COLS)
         self.ConfigDefaultBudgetStrategy.SetSelection(0)
         self.ConfigDefaultBudgetStrategy.SetToolTip(
-            u"“玩家现金”：预算策略将参考玩家的现金，请注意若竞价时现金改变，预算也会调整。\n“单一预算”：为所有航机设定统一的预算上限。\n“机型分类价”：航机根据其所属的机型系列设定预算。\n“独立预算”：每架航机都使用其单独的预算。\n提示：若选了策略但未设定具体预算值，其预算值将由上一级预算策略管理。")
+            u"“玩家现金”：预算策略将参考玩家的现金，请注意若竞价时现金改变，预算也会调整。\n“单一预算”：为所有航机设定统一的预算上限。\n“机型分类价”：航机根据其所属的机型系列设定预算。\n"
+            u"“独立预算”：每架航机都使用其单独的预算。\n提示：若选了策略但未设定具体预算值，其预算值将由上一级预算策略管理。")
 
         sbSizer4.Add(self.ConfigDefaultBudgetStrategy, 0, wx.ALL, 5)
 
@@ -172,11 +173,11 @@ class AirplaneBiddingManager(wx.Frame):
 
         sbSizer4.Add(self.ConfigDefaultRentMethod, 0, wx.ALL, 5)
 
-        self.ConfigMultiBudgetSrrategyButton = wx.Button(sbSizer4.GetStaticBox(), wx.ID_ANY, u"分级预算策略设置",
+        self.ConfigMultiBudgetStrategyButton = wx.Button(sbSizer4.GetStaticBox(), wx.ID_ANY, u"分级预算策略设置",
                                                          wx.DefaultPosition, wx.Size(120, -1), 0)
-        self.ConfigMultiBudgetSrrategyButton.SetToolTip(u"单击进入分级预算策略选单。")
+        self.ConfigMultiBudgetStrategyButton.SetToolTip(u"单击进入分级预算策略选单。")
 
-        sbSizer4.Add(self.ConfigMultiBudgetSrrategyButton, 0, wx.ALL | wx.ALIGN_CENTER_HORIZONTAL, 5)
+        sbSizer4.Add(self.ConfigMultiBudgetStrategyButton, 0, wx.ALL | wx.ALIGN_CENTER_HORIZONTAL, 5)
 
         self.ConfigCurrentAirplaneAuctionButton = wx.Button(sbSizer4.GetStaticBox(), wx.ID_ANY, u"管理当前航机",
                                                             wx.DefaultPosition, wx.Size(120, -1), 0)
@@ -202,9 +203,9 @@ class AirplaneBiddingManager(wx.Frame):
         self.ChangeBiddingStrategyButton.Bind(wx.EVT_BUTTON, self.ChangeBiddingStrategyButtonOnButtonClick)
         self.ContinueIncreaseBidButton.Bind(wx.EVT_BUTTON, self.ContinueIncreaseBidButtonOnButtonClick)
         self.GiveUpPlaceBidButton.Bind(wx.EVT_BUTTON, self.GiveUpPlaceBidButtonOnButtonClick)
-        self.IsAutoIncreasePriceWithoutBudgettStrategy.Bind(wx.EVT_CHECKBOX,
-                                                            self.IsAutoIncreasePriceWithoutBudgettStrategyOnCheckBox)
-        self.ConfigMultiBudgetSrrategyButton.Bind(wx.EVT_BUTTON, self.ConfigMultiBudgetSrrategyButtonOnButtonClick)
+        self.IsAutoIncreasePriceWithoutBudgetStrategy.Bind(wx.EVT_CHECKBOX,
+                                                           self.IsAutoIncreasePriceWithoutBudgetStrategyOnCheckBox)
+        self.ConfigMultiBudgetStrategyButton.Bind(wx.EVT_BUTTON, self.ConfigMultiBudgetStrategyButtonOnButtonClick)
         self.ConfigCurrentAirplaneAuctionButton.Bind(wx.EVT_BUTTON,
                                                      self.ConfigCurrentAirplaneAuctionButtonOnButtonClick)
 
@@ -227,10 +228,10 @@ class AirplaneBiddingManager(wx.Frame):
     def GiveUpPlaceBidButtonOnButtonClick(self, event):
         pass
 
-    def IsAutoIncreasePriceWithoutBudgettStrategyOnCheckBox(self, event):
+    def IsAutoIncreasePriceWithoutBudgetStrategyOnCheckBox(self, event):
         pass
 
-    def ConfigMultiBudgetSrrategyButtonOnButtonClick(self, event):
+    def ConfigMultiBudgetStrategyButtonOnButtonClick(self, event):
         pass
 
     def ConfigCurrentAirplaneAuctionButtonOnButtonClick(self, event):
@@ -320,7 +321,8 @@ class AirplanePurchaseStrategyManager(wx.Frame):
         self.m_staticText53.Wrap(-1)
 
         self.m_staticText53.SetToolTip(
-            u"设计航机选择器的条件，从上到下分别为：\n起拍价 - 航机在二手市场上的初始租赁价格，或立即购买价格。\n机龄 - 航机已服役的年龄，为大于 0 的实数。\n健康度 - 航机在租赁时的健康度，百分比。\n租赁来源 - 指示航机来自于AS官方租赁，或者其它玩家。")
+            u"设计航机选择器的条件，从上到下分别为：\n起拍价 - 航机在二手市场上的初始租赁价格，或立即购买价格。\n机龄 - 航机已服役的年龄，为大于 0 的实数。\n健康度 - "
+            u"航机在租赁时的健康度，百分比。\n租赁来源 - 指示航机来自于AS官方租赁，或者其它玩家。")
 
         gSizer12.Add(self.m_staticText53, 0, wx.ALL | wx.ALIGN_CENTER_HORIZONTAL | wx.ALIGN_CENTER_VERTICAL, 5)
 
@@ -407,12 +409,13 @@ class AirplanePurchaseStrategyManager(wx.Frame):
         self.PriorityRentFrom.SetSelection(5)
         gSizer12.Add(self.PriorityRentFrom, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL | wx.ALIGN_CENTER_HORIZONTAL, 5)
 
-        RentFromOfficalOrGamerRadiosChoices = [u"官方", u"玩家"]
-        self.RentFromOfficalOrGamerRadios = wx.RadioBox(sbSizer6.GetStaticBox(), wx.ID_ANY, u"租赁来源", wx.DefaultPosition,
-                                                        wx.DefaultSize, RentFromOfficalOrGamerRadiosChoices, 2,
-                                                        wx.RA_SPECIFY_COLS)
-        self.RentFromOfficalOrGamerRadios.SetSelection(0)
-        gSizer12.Add(self.RentFromOfficalOrGamerRadios, 0,
+        RentFromOfficialOrGamerRadiosChoices = [u"官方", u"玩家"]
+        self.RentFromOfficialOrGamerRadios = wx.RadioBox(sbSizer6.GetStaticBox(), wx.ID_ANY, u"租赁来源",
+                                                         wx.DefaultPosition,
+                                                         wx.DefaultSize, RentFromOfficialOrGamerRadiosChoices, 2,
+                                                         wx.RA_SPECIFY_COLS)
+        self.RentFromOfficialOrGamerRadios.SetSelection(0)
+        gSizer12.Add(self.RentFromOfficialOrGamerRadios, 0,
                      wx.ALL | wx.ALIGN_CENTER_HORIZONTAL | wx.ALIGN_CENTER_VERTICAL, 5)
 
         self.IsRentFromPrefer = wx.CheckBox(sbSizer6.GetStaticBox(), wx.ID_ANY, wx.EmptyString, wx.DefaultPosition,
@@ -427,8 +430,8 @@ class AirplanePurchaseStrategyManager(wx.Frame):
 
         gSizer10 = wx.GridSizer(1, 4, 0, 0)
 
-        self.SaveCuurentAirplaneConfigButton = wx.Button(self, wx.ID_ANY, u"保存", wx.DefaultPosition, wx.DefaultSize, 0)
-        gSizer10.Add(self.SaveCuurentAirplaneConfigButton, 0,
+        self.SaveCurrentAirplaneConfigButton = wx.Button(self, wx.ID_ANY, u"保存", wx.DefaultPosition, wx.DefaultSize, 0)
+        gSizer10.Add(self.SaveCurrentAirplaneConfigButton, 0,
                      wx.ALL | wx.ALIGN_CENTER_HORIZONTAL | wx.ALIGN_CENTER_VERTICAL, 5)
 
         self.ExitWindowButton = wx.Button(self, wx.ID_ANY, u"退出/结束编辑", wx.DefaultPosition, wx.DefaultSize, 0)
@@ -465,7 +468,7 @@ class AirplanePurchaseStrategyManager(wx.Frame):
         self.PriorityHealth.Bind(wx.EVT_CHOICE, self.PriorityHealthOnChoice)
         self.EditAirplaneHealthButton.Bind(wx.EVT_BUTTON, self.EditAirplaneHealthButtonOnButtonClick)
         self.PriorityRentFrom.Bind(wx.EVT_CHOICE, self.PriorityRentFromOnChoice)
-        self.SaveCuurentAirplaneConfigButton.Bind(wx.EVT_BUTTON, self.SaveCuurentAirplaneConfigButtonOnButtonClick)
+        self.SaveCurrentAirplaneConfigButton.Bind(wx.EVT_BUTTON, self.SaveCurrentAirplaneConfigButtonOnButtonClick)
         self.ExitWindowButton.Bind(wx.EVT_BUTTON, self.ExitWindowButtonOnButtonClick)
         self.LoadDesignerFromDiskButton.Bind(wx.EVT_BUTTON, self.LoadDesignerFromDiskButtonOnButtonClick)
         self.SaveDesignerToDiskButton.Bind(wx.EVT_BUTTON, self.SaveDesignerToDiskButtonOnButtonClick)
@@ -507,7 +510,7 @@ class AirplanePurchaseStrategyManager(wx.Frame):
     def PriorityRentFromOnChoice(self, event):
         pass
 
-    def SaveCuurentAirplaneConfigButtonOnButtonClick(self, event):
+    def SaveCurrentAirplaneConfigButtonOnButtonClick(self, event):
         pass
 
     def ExitWindowButtonOnButtonClick(self, event):
@@ -520,9 +523,27 @@ class AirplanePurchaseStrategyManager(wx.Frame):
         pass
 
 
-class MulitLevelBudgetManager(wx.Frame):
+class MultiLevelBudgetManager(wx.Frame):
+    BudgetData = {'Series': {}, 'GamerCashPercentage': 100.0, 'SingleBudget': 0, 'Reference': {}}
+    # 数据结构备注：BudgetData:dict -> Series:dict -> {AirplaneFamilyName}:dict -> {AirplaneName}:dict -> Budget:int
+    # Series表示系列，存储系列预算和独立预算
+    # AirplaneFamilyName表示航机家族，AirplaneName表示航机家族的某一个航机，或者是 'all' 以存储机型家族统一定价
+    flag_Modified = False
 
-    def __init__(self, parent):
+    def __init__(self, parent, callback_GetBudgetData, callback_UpdateData, selectedAirplaneFamily: str = '',
+                 selectedAirplane: str = ''):
+        """
+        分级预算管理系统界面UI，负责展示对玩家现金、单一预算、系列预算及独立预算的页面并允许编辑。
+        :param callback_GetBudgetData: 回调函数，用于取得预算数据，请注意数据是字典类，至少包含4个对应的单元。
+        :param callback_UpdateData: 回调函数，用于类实例之间的数据同步。发送和取回的数据格式完全相同。
+        :param selectedAirplaneFamily: 被选中的航机的家族，可选项
+        :param selectedAirplane: 被选中的航机，可选项
+        """
+        if not (callable(callback_GetBudgetData) and callable(callback_UpdateData)):
+            raise Exception('函数未定义，无法取得或更新数据。')
+        self.function_GetBudgetData = callback_GetBudgetData
+        self.function_PushBudgetData = callback_UpdateData
+
         wx.Frame.__init__(self, parent, id=wx.ID_ANY, title=u"分级预算管理系统", pos=wx.DefaultPosition, size=wx.Size(426, 439),
                           style=wx.CAPTION | wx.CLOSE_BOX | wx.MINIMIZE | wx.MINIMIZE_BOX | wx.TAB_TRAVERSAL)
 
@@ -556,11 +577,11 @@ class MulitLevelBudgetManager(wx.Frame):
 
         bSizer18.Add(self.m_staticText59, 0, wx.ALL | wx.ALIGN_CENTER_HORIZONTAL, 5)
 
-        self.SeriesOrIndependBudgerInput = wx.TextCtrl(self, wx.ID_ANY, wx.EmptyString, wx.DefaultPosition,
-                                                       wx.DefaultSize, 0)
-        self.SeriesOrIndependBudgerInput.SetToolTip(u"在这里输入机型分类预算或单航机预算。")
+        self.SeriesOrIndependentBudgetInput = wx.TextCtrl(self, wx.ID_ANY, wx.EmptyString, wx.DefaultPosition,
+                                                          wx.DefaultSize, 0)
+        self.SeriesOrIndependentBudgetInput.SetToolTip(u"在这里输入机型分类预算或单航机预算。")
 
-        bSizer18.Add(self.SeriesOrIndependBudgerInput, 0, wx.ALL, 5)
+        bSizer18.Add(self.SeriesOrIndependentBudgetInput, 0, wx.ALL, 5)
 
         self.UseAirplanePriceButton = wx.Button(self, wx.ID_ANY, u"使用航机价格", wx.DefaultPosition, wx.DefaultSize, 0)
         self.UseAirplanePriceButton.SetToolTip(u"输入一个百分比以决定航机的预算（基于航机售价）。")
@@ -621,8 +642,8 @@ class MulitLevelBudgetManager(wx.Frame):
         # Connect Events
         self.SelectAirplaneFamily.Bind(wx.EVT_LISTBOX, self.SelectAirplaneFamilyOnListBox)
         self.SelectAirplaneInFamily.Bind(wx.EVT_LISTBOX, self.SelectAirplaneInFamilyOnListBox)
-        self.SeriesOrIndependBudgerInput.Bind(wx.EVT_KILL_FOCUS, self.SeriesOrIndependBudgerInputOnKillFocus)
-        self.SeriesOrIndependBudgerInput.Bind(wx.EVT_TEXT, self.SeriesOrIndependBudgerInputOnText)
+        self.SeriesOrIndependentBudgetInput.Bind(wx.EVT_KILL_FOCUS, self.SeriesOrIndependentBudgetInputOnKillFocus)
+        self.SeriesOrIndependentBudgetInput.Bind(wx.EVT_TEXT, self.SeriesOrIndependentBudgetInputOnText)
         self.UseAirplanePriceButton.Bind(wx.EVT_BUTTON, self.UseAirplanePriceButtonOnButtonClick)
         self.PricePercentageInput.Bind(wx.EVT_KILL_FOCUS, self.PricePercentageInputOnKillFocus)
         self.PricePercentageInput.Bind(wx.EVT_TEXT, self.PricePercentageInputOnText)
@@ -630,36 +651,117 @@ class MulitLevelBudgetManager(wx.Frame):
         self.SingleBudgetInput.Bind(wx.EVT_TEXT, self.SingleBudgetInputOnText)
         self.EndAndExitButton.Bind(wx.EVT_BUTTON, self.EndAndExitButtonOnButtonClick)
 
+        self.DataInit(selectedAirplaneFamily, selectedAirplane)
+
     def __del__(self):
         pass
 
     # Virtual event handlers, override them in your derived class
     def SelectAirplaneFamilyOnListBox(self, event):
-        pass
+        t1: dict = self.BudgetData.get('Series').get(self.SelectAirplaneFamily.GetStringSelection())
+        t2 = [i for i in t1.keys()]
+        t2[t2.index('all')] = '全部'
+        self.SelectAirplaneInFamily.SetItems(t2)
 
     def SelectAirplaneInFamilyOnListBox(self, event):
-        pass
+        # 锁定文本框防止触发事件
+        self.SeriesOrIndependentBudgetInput.Disable()
+        self.SeriesOrIndependentBudgetInput.SetValue(
+            str(self.BudgetData.get('Series').get(self.SelectAirplaneFamily.GetStringSelection(), {}).get(
+                self.SelectAirplaneInFamily.GetStringSelection(), 0)))
+        self.SeriesOrIndependentBudgetInput.Enable()
 
-    def SeriesOrIndependBudgerInputOnKillFocus(self, event):
-        pass
+    def SeriesOrIndependentBudgetInputOnKillFocus(self, event):
+        if self.flag_Modified:
+            self.function_PushBudgetData(self.BudgetData)
+            self.flag_Modified = False
 
-    def SeriesOrIndependBudgerInputOnText(self, event):
-        pass
+    def SeriesOrIndependentBudgetInputOnText(self, event):
+        if not self.SeriesOrIndependentBudgetInput.GetValue().isdigit():
+            # 锁定文本框防止触发事件
+            self.SeriesOrIndependentBudgetInput.Disable()
+            # 重置文本框数据
+            self.SeriesOrIndependentBudgetInput.SetValue(
+                str(self.BudgetData.get('Series').get(self.SelectAirplaneFamily.GetStringSelection(), {}).get(
+                    self.SelectAirplaneInFamily.GetStringSelection(), 0)))
+            self.SeriesOrIndependentBudgetInput.Enable()
+        else:
+            self.BudgetData['Series'][self.SelectAirplaneFamily.GetStringSelection()][
+                self.SelectAirplaneInFamily.GetStringSelection()] = int(self.SeriesOrIndependentBudgetInput.GetValue())
+            self.flag_Modified = True
 
     def UseAirplanePriceButtonOnButtonClick(self, event):
-        pass
+        reference_price = self.BudgetData.get('Reference').get(self.SelectAirplaneFamily.GetStringSelection(), {}).get(
+            self.SelectAirplaneInFamily.GetStringSelection(), 0)
+        QuestionDialog = wx.TextEntryDialog(self, '请输入该航机价格（%d）的百分比：（0 ~ 100）' % reference_price,
+                                            '航机价格百分比计算', '-1', wx.OK)
+        QuestionDialog.ShowModal()
+        t1: str = QuestionDialog.GetValue()
+        QuestionDialog.Destroy()
+        if t1.isdigit() or (t1.count('.') == 1 and t1.replace('.', '').isdigit()):
+            if 0 < float(t1) <= 100:
+                self.SeriesOrIndependentBudgetInput.Disable()
+                self.SeriesOrIndependentBudgetInput.SetValue(str(int(float(t1) * reference_price)))
+                self.SeriesOrIndependentBudgetInput.Enable()
+            else:
+                wx.MessageDialog(self, '数字应在0到100之间！可以输入小数！', '错误').ShowModal()
+        else:
+            wx.MessageDialog(self, '输入的不是数字！', '错误').ShowModal()
 
     def PricePercentageInputOnKillFocus(self, event):
-        pass
+        if self.flag_Modified:
+            self.function_PushBudgetData(self.BudgetData)
+            self.flag_Modified = False
 
     def PricePercentageInputOnText(self, event):
-        pass
+        t1: str = self.PricePercentageInput.GetValue()
+        if t1.isdigit() or (t1.count('.') == 1 and t1.replace('.', '').isdigit()):
+            self.BudgetData['GamerCashPercentage'] = float(self.PricePercentageInput.GetValue())
+        else:
+            self.PricePercentageInput.Disable()
+            self.PricePercentageInput.SetValue(str(self.BudgetData.get('GamerCashPercentage')))
+            self.PricePercentageInput.Enable()
 
     def SingleBudgetInputOnKillFocus(self, event):
-        pass
+        if self.flag_Modified:
+            self.function_PushBudgetData(self.BudgetData)
+            self.flag_Modified = False
 
     def SingleBudgetInputOnText(self, event):
-        pass
+        if self.SingleBudgetInput.GetValue().isdigit():
+            self.BudgetData['SingleBudget'] = int(self.SingleBudgetInput.GetValue())
+        else:
+            self.SingleBudgetInput.Disable()
+            self.SingleBudgetInput.SetValue(str(self.BudgetData.get('SingleBudget')))
+            self.SingleBudgetInput.Enable()
 
     def EndAndExitButtonOnButtonClick(self, event):
-        pass
+        self.Close(True)
+
+    # 内部规程函数
+    def DataInit(self, AirplaneFamily: str = '', AirplaneName: str = ''):
+        self.BudgetData.update(self.function_GetBudgetData())
+        self.PricePercentageInput.Disable()
+        self.PricePercentageInput.SetValue(str(self.BudgetData.get('GamerCashPercentage', 100)))
+        self.PricePercentageInput.Enable()
+        self.SingleBudgetInput.Disable()
+        self.SingleBudgetInput.SetValue(str(self.BudgetData.get('SingleBudget', 0)))
+        self.SingleBudgetInput.Enable()
+        AirplaneSeries: dict = self.BudgetData.get('Series')
+        AirplaneFamilies = [i for i in AirplaneSeries.keys()]
+        # 重绘航机家族选择
+        self.SelectAirplaneFamily.SetItems(AirplaneFamilies)
+        try:
+            if len(AirplaneFamilies) * len(AirplaneName) > 0:
+                self.SelectAirplaneFamily.SetSelection(AirplaneFamilies.index(AirplaneFamily))
+                theAirplaneList = [i for i in
+                                   AirplaneSeries.get(AirplaneFamilies[AirplaneFamilies.index(AirplaneFamily)]).keys()]
+                self.SelectAirplaneInFamily.SetItems(theAirplaneList)
+                self.SelectAirplaneInFamily.SetSelection(theAirplaneList.index(AirplaneName))
+                # 禁用控件防止触发文本更改
+                self.SeriesOrIndependentBudgetInput.Disable()
+                self.SeriesOrIndependentBudgetInput.SetValue(
+                    str(self.BudgetData.get('Series').get(AirplaneFamily).get(AirplaneName)))
+                self.SeriesOrIndependentBudgetInput.Enable()
+        except:
+            pass
