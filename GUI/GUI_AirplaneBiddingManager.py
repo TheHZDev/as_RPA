@@ -239,8 +239,30 @@ class AirplaneBiddingManager(wx.Frame):
 
 
 class AirplanePurchaseStrategyManager(wx.Frame):
+    cache_Priority = []
+    cache_PurchaseStrategyData = {}
+    flag_modified = False
 
-    def __init__(self, parent):
+    # 数据类型说明：cache_PurchaseStrategyData:dict -> {AirplaneFamily}:dict -> {AirplaneName}:dict -> (ToRent:int,
+    # Budget:int, RentMethod:int, AirplaneSelector:dict -> (PricePriority:int, MinPrice:int, MaxPrice:int,
+    # PriceOptimization:bool, AgePriority:int, MinAge:float, MaxAge:float, AgeOptimization:bool,
+    # HealthPriority:int, MinHealth:int, MaxHealth:int, HealthOptimization:bool, RentFromOfficialOrGamerPriority:int,
+    # RentFromOfficialOrGamer:int, RentFromOfficialOrGamerOptimization:bool), Enable:bool)
+
+    def __init__(self, parent, callback_GetAirplanePurchaseData, callback_PushAirplaneData,
+                 callback_GetDefaultConfig=None):
+        """
+        航机租赁（订购）管理器，负责管理航机订购、竞价策略、购买方式及航机细化选择器。
+        :param callback_GetAirplanePurchaseData: 回调函数，用于获取航机的数据
+        :param callback_PushAirplaneData: 回调函数，用于推送/保存航机的数据
+        :param callback_GetDefaultConfig: 回调函数，用于获取默认设置
+        """
+        if not (callable(callback_GetAirplanePurchaseData) and callable(callback_PushAirplaneData)):
+            raise Exception('函数未定义，无法获取或保存数据。')
+        self.function_GetData = callback_GetAirplanePurchaseData
+        self.function_SaveData = callback_PushAirplaneData
+        self.function_GetDefaultConfig = callback_GetDefaultConfig
+
         wx.Frame.__init__(self, parent, id=wx.ID_ANY, title=u"航机租赁策略管理", pos=wx.DefaultPosition, size=wx.Size(598, 445),
                           style=wx.CAPTION | wx.CLOSE_BOX | wx.FRAME_FLOAT_ON_PARENT | wx.MINIMIZE | wx.MINIMIZE_BOX | wx.TAB_TRAVERSAL)
 
@@ -334,7 +356,7 @@ class AirplanePurchaseStrategyManager(wx.Frame):
 
         gSizer12.Add(self.m_staticText54, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL | wx.ALIGN_RIGHT, 5)
 
-        PriorityPriceChoices = [u"1", u"2", u"3", u"4", u"5", u"没有"]
+        PriorityPriceChoices = [u"1", u"2", u"3", u"4", u"没有"]
         self.PriorityPrice = wx.Choice(sbSizer6.GetStaticBox(), wx.ID_ANY, wx.DefaultPosition, wx.DefaultSize,
                                        PriorityPriceChoices, 0)
         self.PriorityPrice.SetSelection(5)
@@ -358,7 +380,7 @@ class AirplanePurchaseStrategyManager(wx.Frame):
                                          wx.DefaultSize, 0)
         gSizer12.Add(self.IsPricePrefer, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL | wx.ALIGN_CENTER_HORIZONTAL, 5)
 
-        PriorityAirplaneAgeChoices = [u"1", u"2", u"3", u"4", u"5", u"没有"]
+        PriorityAirplaneAgeChoices = [u"1", u"2", u"3", u"4", u"没有"]
         self.PriorityAirplaneAge = wx.Choice(sbSizer6.GetStaticBox(), wx.ID_ANY, wx.DefaultPosition, wx.DefaultSize,
                                              PriorityAirplaneAgeChoices, 0)
         self.PriorityAirplaneAge.SetSelection(5)
@@ -380,7 +402,7 @@ class AirplanePurchaseStrategyManager(wx.Frame):
                                                wx.DefaultSize, 0)
         gSizer12.Add(self.IsAirplaneAgePrefer, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL | wx.ALIGN_CENTER_HORIZONTAL, 5)
 
-        PriorityHealthChoices = [u"1", u"2", u"3", u"4", u"5", u"没有"]
+        PriorityHealthChoices = [u"1", u"2", u"3", u"4", u"没有"]
         self.PriorityHealth = wx.Choice(sbSizer6.GetStaticBox(), wx.ID_ANY, wx.DefaultPosition, wx.DefaultSize,
                                         PriorityHealthChoices, 0)
         self.PriorityHealth.SetSelection(5)
@@ -403,7 +425,7 @@ class AirplanePurchaseStrategyManager(wx.Frame):
                                                   wx.DefaultPosition, wx.DefaultSize, 0)
         gSizer12.Add(self.IsAirplaneHealthPrefer, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL | wx.ALIGN_CENTER_HORIZONTAL, 5)
 
-        PriorityRentFromChoices = [u"1", u"2", u"3", u"4", u"5", u"没有"]
+        PriorityRentFromChoices = [u"1", u"2", u"3", u"4", u"没有"]
         self.PriorityRentFrom = wx.Choice(sbSizer6.GetStaticBox(), wx.ID_ANY, wx.DefaultPosition, wx.DefaultSize,
                                           PriorityRentFromChoices, 0)
         self.PriorityRentFrom.SetSelection(5)
@@ -457,12 +479,12 @@ class AirplanePurchaseStrategyManager(wx.Frame):
         self.Centre(wx.BOTH)
 
         # Connect Events
+        self.Bind(wx.EVT_CLOSE, self.AirplanePurchaseStrategyManagerOnClose)
         self.SelectAirplaneFamily.Bind(wx.EVT_CHOICE, self.SelectAirplaneFamilyOnChoice)
         self.SelectAirplaneInFamily.Bind(wx.EVT_CHOICE, self.SelectAirplaneInFamilyOnChoice)
         self.InputRentNumber.Bind(wx.EVT_TEXT, self.InputRentNumberOnText)
         self.PriorityPrice.Bind(wx.EVT_CHOICE, self.PriorityPriceOnChoice)
         self.EditStartPriceButton.Bind(wx.EVT_BUTTON, self.EditStartPriceButtonOnButtonClick)
-        self.IsPricePrefer.Bind(wx.EVT_CHECKBOX, self.IsPricePreferOnCheckBox)
         self.PriorityAirplaneAge.Bind(wx.EVT_CHOICE, self.PriorityAirplaneAgeOnChoice)
         self.EditAirplaneAgeButton.Bind(wx.EVT_BUTTON, self.EditAirplaneAgeButtonOnButtonClick)
         self.PriorityHealth.Bind(wx.EVT_CHOICE, self.PriorityHealthOnChoice)
@@ -472,55 +494,306 @@ class AirplanePurchaseStrategyManager(wx.Frame):
         self.ExitWindowButton.Bind(wx.EVT_BUTTON, self.ExitWindowButtonOnButtonClick)
         self.LoadDesignerFromDiskButton.Bind(wx.EVT_BUTTON, self.LoadDesignerFromDiskButtonOnButtonClick)
         self.SaveDesignerToDiskButton.Bind(wx.EVT_BUTTON, self.SaveDesignerToDiskButtonOnButtonClick)
+        self.RentFromOfficialOrGamerRadios.Bind(wx.EVT_RADIOBOX, self.RentFromOfficialOrGamerRadiosOnRadioBox)
 
     def __del__(self):
         pass
 
     # Virtual event handlers, override them in your derived class
+    def AirplanePurchaseStrategyManagerOnClose(self, event):
+        self.AutoSaveData()
+        event.skip()
+
     def SelectAirplaneFamilyOnChoice(self, event):
-        pass
+        self.AutoSaveData()
+        AirplaneNames = [i for i in
+                         self.cache_PurchaseStrategyData.get(self.SelectAirplaneFamily.GetStringSelection()).keys()]
+        self.SelectAirplaneInFamily.SetItems(AirplaneNames)
+        self.SelectAirplaneInFamily.SetSelection(0)
+        self.SelectOneAirplaneUpdateUI()
 
     def SelectAirplaneInFamilyOnChoice(self, event):
-        pass
+        self.AutoSaveData()
+        self.SelectOneAirplaneUpdateUI()
 
     def InputRentNumberOnText(self, event):
-        pass
+        if self.InputRentNumber.GetValue().isdigit():
+            self.flag_modified = True
+            self.cache_PurchaseStrategyData[self.SelectAirplaneFamily.GetStringSelection()][
+                self.SelectAirplaneInFamily.GetStringSelection()]['ToRent'] = int(self.InputRentNumber.GetValue())
+        else:
+            self.InputRentNumber.Disable()
+            self.InputRentNumber.SetValue(
+                str(self.cache_PurchaseStrategyData.get(self.SelectAirplaneFamily.GetStringSelection()).get(
+                    self.SelectAirplaneInFamily.GetStringSelection()).get('ToRent')))
+            self.InputRentNumber.Enable()
 
     def PriorityPriceOnChoice(self, event):
-        pass
+        self.AutoPrioritySort(0, self.PriorityPrice.GetSelection())
+
+    def RentFromOfficialOrGamerRadiosOnRadioBox(self, event):
+        AirplaneSelectorUnit: dict = self.cache_PurchaseStrategyData.get(
+            self.SelectAirplaneFamily.GetStringSelection()).get(self.SelectAirplaneInFamily.GetStringSelection()).get(
+            'AirplaneSelector')
+        AirplaneSelectorUnit.update({'RentFromOfficialOrGamer': self.RentFromOfficialOrGamerRadios.GetSelection()})
+        self.flag_modified = True
 
     def EditStartPriceButtonOnButtonClick(self, event):
-        pass
-
-    def IsPricePreferOnCheckBox(self, event):
-        pass
+        AirplaneSelectorUnit: dict = self.cache_PurchaseStrategyData.get(
+            self.SelectAirplaneFamily.GetStringSelection()).get(self.SelectAirplaneInFamily.GetStringSelection()).get(
+            'AirplaneSelector')
+        MinPrice = AirplaneSelectorUnit.get('MinPrice', 0)
+        MaxPrice = AirplaneSelectorUnit.get('MaxPrice', 0)
+        tMin = wx.TextEntryDialog(self, '请输入起拍价下限：', '起拍价筛选', str(MinPrice))
+        tMax = wx.TextEntryDialog(self, '请输入起拍价上限：', '起拍价筛选', str(MaxPrice))
+        if tMin.ShowModal() == wx.ID_OK:
+            if tMax.ShowModal() == wx.ID_OK:
+                if tMin.GetValue().isdigit() and tMax.GetValue().isdigit() and int(tMin.GetValue()) <= int(
+                        tMax.GetValue()):
+                    if int(tMin.GetValue()) != MinPrice or int(tMax.GetValue()) != MaxPrice:
+                        AirplaneSelectorUnit.update(
+                            {'MinPrice': int(tMin.GetValue()), 'MaxPrice': int(tMax.GetValue())})
+                        self.flag_modified = True
+                else:
+                    wx.MessageDialog(self, '输入的不是数字！', '错误').ShowModal()
+        tMin.Destroy()
+        tMax.Destroy()
 
     def PriorityAirplaneAgeOnChoice(self, event):
-        pass
+        self.AutoPrioritySort(1, self.PriorityAirplaneAge.GetSelection())
 
     def EditAirplaneAgeButtonOnButtonClick(self, event):
-        pass
+        AirplaneSelectorUnit: dict = self.cache_PurchaseStrategyData.get(
+            self.SelectAirplaneFamily.GetStringSelection()).get(self.SelectAirplaneInFamily.GetStringSelection()).get(
+            'AirplaneSelector')
+        MinAge = AirplaneSelectorUnit.get('MinAge', 0)
+        MaxAge = AirplaneSelectorUnit.get('MaxAge', 0)
+        tMin = wx.TextEntryDialog(self, '请输入机龄下限：', '航机机龄筛选', str(MinAge))
+        tMax = wx.TextEntryDialog(self, '请输入机龄上限：', '航机机龄筛选', str(MaxAge))
+        if tMin.ShowModal() == wx.ID_OK:
+            if tMax.ShowModal() == wx.ID_OK:
+                try:
+                    if 0 <= float(tMin.GetValue()) <= float(tMax.GetValue()) and (
+                            float(tMin.GetValue()) != MinAge or float(tMax.GetValue()) != MaxAge):
+                        AirplaneSelectorUnit.update(
+                            {'MinAge': float(tMin.GetValue()), 'MaxAge': float(tMax.GetValue())})
+                        self.flag_modified = True
+                except:
+                    wx.MessageDialog(self, '输入的不是数字！', '错误').ShowModal()
+        tMin.Destroy()
+        tMax.Destroy()
 
     def PriorityHealthOnChoice(self, event):
-        pass
+        self.AutoPrioritySort(2, self.PriorityHealth.GetSelection())
 
     def EditAirplaneHealthButtonOnButtonClick(self, event):
-        pass
+        AirplaneSelectorUnit: dict = self.cache_PurchaseStrategyData.get(
+            self.SelectAirplaneFamily.GetStringSelection()).get(self.SelectAirplaneInFamily.GetStringSelection()).get(
+            'AirplaneSelector')
+        MinHealth = AirplaneSelectorUnit.get('MinHealth', 0)
+        MaxHealth = AirplaneSelectorUnit.get('MaxHealth', 0)
+        tMin = wx.TextEntryDialog(self, '请输入航机健康度下限：', '航机健康度筛选', str(MinHealth))
+        tMax = wx.TextEntryDialog(self, '请输入航机健康度上限：', '航机健康度筛选', str(MaxHealth))
+        if tMin.ShowModal() == wx.ID_OK:
+            if tMax.ShowModal() == wx.ID_OK:
+                try:
+                    if 0 <= float(tMin.GetValue()) <= float(tMax.GetValue()) and (
+                            float(tMin.GetValue()) != MinHealth or float(tMax.GetValue()) != MaxHealth):
+                        AirplaneSelectorUnit.update(
+                            {'MinHealth': float(tMin.GetValue()) / 100, 'MaxHealth': float(tMax.GetValue()) / 100})
+                        self.flag_modified = True
+                except:
+                    wx.MessageDialog(self, '输入的不是数字！', '错误').ShowModal()
+        tMin.Destroy()
+        tMax.Destroy()
 
     def PriorityRentFromOnChoice(self, event):
-        pass
+        self.AutoPrioritySort(3, self.PriorityRentFrom.GetSelection())
 
     def SaveCurrentAirplaneConfigButtonOnButtonClick(self, event):
-        pass
+        self.flag_modified = True
+        self.AutoSaveData()
+        wx.MessageDialog(self, '保存成功！', '保存').ShowModal()
 
     def ExitWindowButtonOnButtonClick(self, event):
-        pass
+        self.Close(True)
 
     def LoadDesignerFromDiskButtonOnButtonClick(self, event):
-        pass
+        self.LoadOrSaveSelector()
 
     def SaveDesignerToDiskButtonOnButtonClick(self, event):
-        pass
+        self.LoadOrSaveSelector(False)
+
+    # 内部规程函数
+    def AutoPrioritySort(self, Index: int = -1, Value: int = -1):
+        if not (0 <= Index < 4 and 0 <= Value <= 4):
+            self.PriorityPrice.SetSelection(self.cache_Priority[0])
+            self.PriorityAirplaneAge.SetSelection(self.cache_Priority[1])
+            self.PriorityHealth.SetSelection(self.cache_Priority[2])
+            self.PriorityRentFrom.SetSelection(self.cache_Priority[3])
+            return
+        # 以上做了一个显示，接下来做插入调整
+        if Value == self.cache_Priority[Index]:
+            return
+        elif Value > self.cache_Priority[Index]:
+            for unit in range(4):
+                if self.cache_Priority[unit] > self.cache_Priority[Index] and self.cache_Priority[unit] != 4:
+                    self.cache_Priority[unit] -= 1
+            self.cache_Priority[Index] = Value
+        elif Value < self.cache_Priority[Index]:
+            for unit in range(4):
+                if Value <= self.cache_Priority[unit] < self.cache_Priority[Index] and self.cache_Priority[unit] != 4:
+                    self.cache_Priority[unit] += 1
+            self.cache_Priority[Index] = Value
+        # 优先级顺序排列
+        if 0 not in self.cache_Priority:
+            if 1 in self.cache_Priority:
+                self.cache_Priority[self.cache_Priority.index(1)] = 0
+            elif 2 in self.cache_Priority:
+                self.cache_Priority[self.cache_Priority.index(2)] = 0
+            elif 3 in self.cache_Priority:
+                self.cache_Priority[self.cache_Priority.index(3)] = 0
+        if 1 not in self.cache_Priority:
+            if 2 in self.cache_Priority:
+                self.cache_Priority[self.cache_Priority.index(2)] = 1
+            elif 3 in self.cache_Priority:
+                self.cache_Priority[self.cache_Priority.index(3)] = 1
+        if 2 not in self.cache_Priority and 3 in self.cache_Priority:
+            self.cache_Priority[self.cache_Priority.index(3)] = 2
+        self.AutoPrioritySort()
+
+    def DataInit(self, AirplaneFamily: str = '', AirplaneName: str = ''):
+        self.cache_PurchaseStrategyData.update(self.function_GetData())
+        AirplaneFamilies = [i for i in self.cache_PurchaseStrategyData.keys()]
+        self.SelectAirplaneFamily.SetItems(AirplaneFamilies)
+        if len(AirplaneFamily) * len(AirplaneName) > 0:
+            self.SelectAirplaneFamily.SetSelection(AirplaneFamilies.index(AirplaneFamily))
+            AirplaneNames = [i for i in self.cache_PurchaseStrategyData.get(
+                AirplaneFamilies[AirplaneFamilies.index(AirplaneFamily)]).keys()]
+            self.SelectAirplaneInFamily.SetItems(AirplaneNames)
+            self.SelectAirplaneInFamily.SetSelection(AirplaneNames.index(AirplaneName))
+        else:
+            self.SelectAirplaneFamily.SetSelection(0)
+            AirplaneNames = [i for i in self.cache_PurchaseStrategyData.get(AirplaneFamilies[0]).keys()]
+            self.SelectAirplaneInFamily.SetItems(AirplaneNames)
+            self.SelectAirplaneInFamily.SetSelection(0)
+        self.SelectOneAirplaneUpdateUI()
+
+    def SelectOneAirplaneUpdateUI(self):
+        self.cache_PurchaseStrategyData.update(self.function_GetData())
+        AirplaneUnit: dict = self.cache_PurchaseStrategyData.get(
+            self.SelectAirplaneFamily.GetStringSelection()).get(self.SelectAirplaneInFamily.GetStringSelection())
+        if AirplaneUnit.get('Enable'):
+            # 航机订购页已启用，使用存储数据
+            # 租赁数量
+            self.InputRentNumber.Disable()
+            self.InputRentNumber.SetValue(str(AirplaneUnit.get('ToRent', 0)))
+            self.InputRentNumber.Enable()
+            # 预算控制
+            self.ConfigBudgetStrategy.SetSelection(AirplaneUnit.get('Budget'))
+            # 方法控制
+            self.ConfigAirplaneAuction.SetSelection(AirplaneUnit.get('RentMethod'))
+
+        else:
+            # 航机订购页未启用过，使用默认设置替代
+            self.InputRentNumber.Disable()
+            self.InputRentNumber.SetValue('0')
+            self.InputRentNumber.Enable()
+            if callable(self.function_GetDefaultConfig):
+                DefaultValues = self.function_GetDefaultConfig()
+            else:
+                DefaultValues = (0, 0)
+            # 预算控制
+            self.ConfigBudgetStrategy.SetSelection(DefaultValues[0])
+            # 方法控制
+            self.ConfigAirplaneAuction.SetSelection(DefaultValues[1])
+            # 航机细化选择器
+            self.cache_Priority = [4, 4, 4, 4]
+            self.AutoPrioritySort()
+            self.ShowPriceTextEntry.SetValue('没有限制')
+            self.ShowAirplaneAgeTextEntry.SetValue('没有限制')
+            self.ShowAirplaneHealthTextEntry.SetValue('0 ~ 100 %')
+            self.RentFromOfficialOrGamerRadios.SetSelection(0)
+            self.IsPricePrefer.SetValue(False)
+            self.IsAirplaneAgePrefer.SetValue(False)
+            self.IsAirplaneHealthPrefer.SetValue(False)
+            self.IsRentFromPrefer.SetValue(False)
+
+    def AutoSaveData(self):
+        if self.flag_modified:
+            self.function_SaveData(self.cache_PurchaseStrategyData)
+            self.flag_modified = False
+
+    def UpdateAirplaneSelector(self):
+        # 航机细化选择器
+        AirplaneSelectorUnit: dict = self.cache_PurchaseStrategyData.get(
+            self.SelectAirplaneFamily.GetStringSelection()).get(self.SelectAirplaneInFamily.GetStringSelection()).get(
+            'AirplaneSelector')
+        self.cache_Priority = [AirplaneSelectorUnit.get('PricePriority'), AirplaneSelectorUnit.get('AgePriority'),
+                               AirplaneSelectorUnit.get('HealthPriority'),
+                               AirplaneSelectorUnit.get('RentFromOfficialOrGamerPriority')]
+        self.AutoPrioritySort()
+        self.ShowPriceTextEntry.SetValue('%d K ~ %d K' % (AirplaneSelectorUnit.get('MinPrice') / 1000,
+                                                          AirplaneSelectorUnit.get('MaxPrice') / 1000))
+        self.ShowAirplaneAgeTextEntry.SetValue('%.1f ~ %.1f 年' % (AirplaneSelectorUnit.get('MinAge'),
+                                                                  AirplaneSelectorUnit.get('MaxAge')))
+        self.ShowAirplaneHealthTextEntry.SetValue('%d ~ %d %%' % (AirplaneSelectorUnit.get('MinHealth'),
+                                                                  AirplaneSelectorUnit.get('MaxHealth')))
+        self.RentFromOfficialOrGamerRadios.SetSelection(AirplaneSelectorUnit.get('RentFromOfficialOrGamer'))
+        self.IsPricePrefer.SetValue(AirplaneSelectorUnit.get('PriceOptimization'))
+        self.IsAirplaneAgePrefer.SetValue(AirplaneSelectorUnit.get('AgeOptimization'))
+        self.IsAirplaneHealthPrefer.SetValue(AirplaneSelectorUnit.get('HealthOptimization'))
+        self.IsRentFromPrefer.SetValue(AirplaneSelectorUnit.get('RentFromOfficialOrGamerOptimization'))
+
+    def LoadOrSaveSelector(self, Load: bool = True):
+        from os import getcwd, sep, mkdir
+        from os.path import isdir, isfile
+        import base64, json
+        default_path = getcwd() + sep + 'SelectorConfig'
+        if not isdir(default_path):
+            mkdir('SelectorConfig')
+        current_AirFamily = self.SelectAirplaneFamily.GetStringSelection()
+        current_AirName = self.SelectAirplaneInFamily.GetStringSelection()
+        if Load:
+            LoadDialog = wx.FileDialog(self, '导入条件设计器', default_path, style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST,
+                                       wildcard="AirlineSim 条件设计器(*.asconfig)|*.asconfig")
+            LoadDialog.ShowModal()
+            load_path = LoadDialog.GetPath()
+            LoadDialog.Destroy()
+            if isfile(load_path):
+                backup_selector = self.cache_PurchaseStrategyData.get(current_AirFamily).get(current_AirName).get(
+                    'AirplaneSelector').copy()
+                self.Disable()
+                try:
+                    t1 = open(load_path, 'rb')
+                    t2: dict = json.loads(base64.b64decode(t1.read()).decode())
+                    self.cache_PurchaseStrategyData[current_AirFamily][current_AirName][
+                        'AirplaneSelector'] = t2.copy()
+                    self.UpdateAirplaneSelector()
+                except:
+                    wx.MessageDialog(self, '文件数据已损坏！', '错误').ShowModal()
+                    self.cache_PurchaseStrategyData[current_AirFamily][current_AirName][
+                        'AirplaneSelector'] = backup_selector.copy()
+                    self.UpdateAirplaneSelector()
+                finally:
+                    self.Enable()
+        else:
+            SaveDialog = wx.FileDialog(self, '导出条件设计器', default_path, style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT,
+                                       wildcard="AirlineSim 条件设计器(*.asconfig)|*.asconfig")
+            SaveDialog.ShowModal()
+            save_path = SaveDialog.GetPath()
+            SaveDialog.Destroy()
+            if len(save_path) > 0:
+                try:
+                    tData = base64.b64encode(json.dumps(
+                        self.cache_PurchaseStrategyData.get(current_AirFamily).get(current_AirName).get(
+                            'AirplaneSelector')).encode())
+                    t1 = open(save_path, 'wb')
+                    t1.write(tData)
+                    t1.close()
+                    wx.MessageDialog(self, '已成功导出至 %s !' % save_path, '提示').ShowModal()
+                except:
+                    pass
 
 
 class MultiLevelBudgetManager(wx.Frame):
