@@ -563,7 +563,7 @@ class CalcAirplaneProperty:
             self.callback_outputLog('将导出到%s。' % FilePath)
         if not FilePath.endswith('.html'):
             FilePath += '.html'
-        tFile = open(FilePath, 'r', encoding='UTF-8')
+        tFile = open(FilePath, 'w', encoding='UTF-8')
         tFile.write('\r\n'.join(list_html))
         tFile.close()
 
