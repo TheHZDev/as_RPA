@@ -70,7 +70,7 @@ def LoginAirlineSim(ServerName: str, UserName: str, Passwd: str) -> Session:
                                       verify=Debug_Allow_HTTPS_Verify, proxies=LocalProxier)
     if login_result.status_code == 201:
         t1: dict = json_loads(login_result.text)
-        t_header = login_session.headers
+        t_header = login_session.headers.copy()
         t_header['Authorization'] = 'Bearer ' + t1.get('token')
         login_session.get('https://sar.simulogics.games/api/sessions/' + t1.get('id'), headers=t_header,
                           timeout=10000, verify=Debug_Allow_HTTPS_Verify, proxies=LocalProxier)

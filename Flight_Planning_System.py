@@ -47,7 +47,9 @@ class Flight_Planning_Sub_System:
         """请使用该函数注销AirlineSim会话"""
         target_url = 'https://sar.simulogics.games/api/sessions/' + \
                      self.logonSession.cookies.get('as-sid').split('_')[0]
+        self.logonSession.headers['Authorization'] = 'Bearer ' + self.logonSession.cookies.get('as-sid')
         self.logonSession.delete(target_url, proxies=LocalProxier)
+        self.logonSession.close()
 
     def SearchFleets(self) -> dict:
         # 搜索需要进行排班的航机，已经在执行飞行任务的（绿色）、已排班但未执行的（黄色）、航班出现了问题的（红色）将会被跳过

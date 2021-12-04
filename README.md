@@ -150,9 +150,14 @@ Thread(target=CalcService.thread_getAirplanePrice).start()
 while len(CalcService.cache_AirCompanyURL) > 0 or not CalcService.flag_price_ok:
   sleep(30)
 sleep(10)
-print('企业名称\t资产数额')
-for line in CalcService.CalcBalanceSheet():
-  print('%s\t%.2f K AS$' % (line[0], line[1] / 1000))
+resultList = CalcService.CalcBalanceSheet()
+# 输出到控制台并非明智之举，可以改为输出到Excel或HTML
+# print('企业名称\t资产数额')
+# for line in resultList:
+#   print('%s\t%.2f K AS$' % (line[0], line[1] / 1000))
+
+# CalcService.OutputPropertyToExcel(resultList)  # 输出到Excel
+CalcService.OutputPropertyToHTML(resultList)  # 输出到HTML
 ```
 
 如果您知悉航机数据表有更新，请删除生成的数据库文件（.sqlite）以降低程序出错概率。  
@@ -182,7 +187,7 @@ GetAirportInfo('Otto')
 Scheme_B_HKG = FleetManager.Experimental_MakeFlightPlanConfig('HKG-SIN-HKG', ['ServiceA', 'ServiceB'], [70, 130],
                                                               '17:05', SpeedConfig=('Max', 'Min'))
 ```
-  
+
 第2架飞机的航机编号为B-HMMS，路线为HKG-BLR-HKG-KUL-HKG，第一趟起飞时间为1:20，服务方案统一为ServiceC，价格统一为120，速度统一为最高巡航速度。  
 **其中所有从HKG出发的航班使用T2航站楼，所有到达HKG的航班使用T3航站楼。**  
 则代码可以写成：
@@ -208,4 +213,5 @@ Scheme_P_257 = [
   FleetManager.MakeSingleFlightPlan('SYD', 'PEK', 80, 'ServiceD', '', ('T5', 'T1'), 'Normal')
 ]
 ```
+
 **（注意：以上航班均为演示需要而随机使用了机场和时间，请勿直接照搬到游戏排班中！！！）**

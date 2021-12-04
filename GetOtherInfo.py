@@ -387,7 +387,9 @@ class CalcAirplaneProperty:
             t_sql.close()
             target_url = 'https://sar.simulogics.games/api/sessions/' + \
                          logonSession.cookies.get('as-sid').split('_')[0]
+            logonSession.headers['Authorization'] = 'Bearer ' + logonSession.cookies.get('as-sid')
             logonSession.delete(target_url)  # 自动注销会话
+            logonSession.close()
         self.flag_price_ok = True
 
     @staticmethod
@@ -508,6 +510,63 @@ class CalcAirplaneProperty:
         self.callback_outputLog('计算资产中......数据已按照资产数额排列完成！')
         return result_list
 
+    # 新增导出函数（控制台，难看死了）
+    def OutputPropertyToExcel(self, CalcData: list, FilePath: str = ''):
+        """将资产数据导出至Excel文件"""
+        try:
+            import openpyxl
+            tWorkBook = openpyxl.Workbook()
+            tTable = tWorkBook.active
+            tTable.title = self.ServerName
+            tTable.append(('企业名称', '资产数额/K AS$'))
+            for line in CalcData:
+                tTable.append((line[0], str(line[1] / 1000)))
+            if FilePath == '' or not isinstance(FilePath, str):
+                from datetime import datetime
+                FilePath = datetime.now().strftime('%Y%m%d.xlsx')
+                self.callback_outputLog('将导出到%s。' % FilePath)
+            if not FilePath.endswith('.xlsx'):
+                FilePath += '.xlsx'
+            tWorkBook.save(FilePath)
+        except ModuleNotFoundError:
+            self.callback_outputLog('请先安装openpyxl模块，具体为"pip install openpyxl"！')
+        except:
+            self.callback_outputLog('未知错误，导出失败！')
+
+    def OutputPropertyToHTML(self, CalcData: list, FilePath: str = ''):
+        """导出资产数据到HTML页面"""
+        import base64
+        example_html = base64.b64decode((b"""
+        PCFET0NUWVBFIGh0bWw+DQo8aHRtbCBsYW5nPSJlbiI+DQo8aGVhZD4NCiAgICA8bWV0YSBjaGFyc2V0PSJVVEYtOCI+DQogICAgPHRpdGxlPkF
+        T6LWE5Lqn57uf6K6h566A5piT5oql6KGoPC90aXRsZT4NCjwvaGVhZD4NCjxzdHlsZT4NCiAgICB0YWJsZSwgdGgsIHRkIHsNCiAgICAgICAgYm
+        9yZGVyOiAxcHggc29saWQgYmxhY2s7DQogICAgICAgIHRleHQtYWxpZ246IGNlbnRlcjsNCiAgICB9DQoNCiAgICB0YWJsZSB7DQogICAgICAgI
+        GJvcmRlci1jb2xsYXBzZTogY29sbGFwc2U7DQogICAgICAgIGZvbnQtc2l6ZTogeC1sYXJnZTsNCiAgICB9DQoNCiAgICB0ZCB7DQogICAgICAg
+        IHdvcmQtYnJlYWs6IGJyZWFrLXdvcmQ7DQogICAgICAgIHBhZGRpbmc6IDJtbTsNCiAgICB9DQoNCiAgICB0cjpudGgtY2hpbGQoZXZlbikgew0
+        KICAgICAgICBiYWNrZ3JvdW5kLWNvbG9yOiBsaWdodGdyYXk7DQogICAgfQ0KPC9zdHlsZT4NCjxib2R5Pg0KPGRpdj4NCiAgICA8dGFibGUgaW
+        Q9Ik1haW5UYWJsZSI+DQogICAgICAgIDx0cj4NCiAgICAgICAgICAgIDx0aD7mr43lhazlj7jlkI3np7A8L3RoPg0KICAgICAgICAgICAgPHRoP
+        ui1hOS6p+aVsOminTwvdGg+DQogICAgICAgIDwvdHI+DQogICAgPC90YWJsZT4NCjwvZGl2Pg0KPHNjcmlwdD4NCiAgICBmdW5jdGlvbiBBZGRO
+        ZXdUYWJsZUxpbmUoQ29tcGFueU5hbWUsIFByb3BlcnR5KSB7DQogICAgICAgIGxldCBNYWluVGFibGUgPSBkb2N1bWVudC5nZXRFbGVtZW50Qnl
+        JZCgiTWFpblRhYmxlIik7DQogICAgICAgIGxldCBlX3RyID0gZG9jdW1lbnQuY3JlYXRlRWxlbWVudCgndHInKTsNCiAgICAgICAgbGV0IGVfdG
+        RfMSA9IGRvY3VtZW50LmNyZWF0ZUVsZW1lbnQoJ3RkJyk7DQogICAgICAgIGxldCBlX3RkXzIgPSBkb2N1bWVudC5jcmVhdGVFbGVtZW50KCd0Z
+        CcpOw0KICAgICAgICBlX3RkXzEuaW5uZXJUZXh0ID0gQ29tcGFueU5hbWU7DQogICAgICAgIGVfdGRfMi5pbm5lclRleHQgPSBQcm9wZXJ0eTsN
+        CiAgICAgICAgZV90ci5hcHBlbmRDaGlsZChlX3RkXzEpOw0KICAgICAgICBlX3RyLmFwcGVuZENoaWxkKGVfdGRfMik7DQogICAgICAgIE1haW5
+        UYWJsZS5hcHBlbmRDaGlsZChlX3RyKTsNCiAgICB9DQoNCiAgICB3aW5kb3cub25sb2FkID0gZnVuY3Rpb24gKCkgew0KDQogICAgfQ0KPC9zY3
+        JpcHQ+DQo8L2JvZHk+DQo8L2h0bWw+
+        """).replace(b'\n', b'').replace(b'\r', b'')).decode('UTF-8')
+        # 替换对应行数据（索引49）
+        list_html = example_html.splitlines()
+        pre_html_load = ''.join(["AddNewTableLine('%s', '%.2f K');" % (i[0], i[1] / 1000) for i in CalcData])
+        list_html[49] = pre_html_load
+        if FilePath == '' or not isinstance(FilePath, str):
+            from datetime import datetime
+            FilePath = datetime.now().strftime('%Y%m%d.html')
+            self.callback_outputLog('将导出到%s。' % FilePath)
+        if not FilePath.endswith('.html'):
+            FilePath += '.html'
+        tFile = open(FilePath, 'r', encoding='UTF-8')
+        tFile.write('\r\n'.join(list_html))
+        tFile.close()
+
 
 class GetAirportInfo:
     flag_finish = []
@@ -525,6 +584,8 @@ class GetAirportInfo:
         self.errorURL = '/app/wicket/page'  # URL后缀
         self.DBPath = ServerName + '.sqlite'
         self.DB_Init()
+        self.get_header = basic_header.copy()
+        self.get_header['Accept-Language'] = 'zh-CN,zh;q=0.8,zh-TW;q=0.7,zh-HK;q=0.5,en-US;q=0.3,en;q=0.2'
         # 判断机场信息以及有无更新
         t_sql = sqlite3.connect(self.DBPath)
         t1 = t_sql.execute('SELECT COUNT(*) FROM AirportInfo;').fetchone()[0]
@@ -545,6 +606,7 @@ class GetAirportInfo:
             IATA TEXT,
             ICAO TEXT,
             Country TEXT,
+            Region TEXT,
             Continent TEXT,
             Runway INTEGER,
             Airport_Size TEXT,
@@ -562,6 +624,7 @@ class GetAirportInfo:
         # IATA - 国际航空运输协会（International Air Transport Association）代码
         # ICAO - 国际民用航空组织（International Civil Aviation Organization）代码
         # Country - 机场所在国名称，可惜是英文的
+        # Region - 机场在所在国的区域，可惜是英文的
         # Continent - 国家所在的洲
         # Runway - 跑道长度，单位是米
         # Airport_Size - 机场大小
@@ -588,14 +651,14 @@ class GetAirportInfo:
         :param AirportNumber: 航班号码
         """
         # 机场是自增探索形式，如果失败了后边就不需要做了
-        t_response = retry_request(self.baseURL + str(AirportNumber))
+        t_response = requests.get(self.baseURL + str(AirportNumber), headers=self.get_header)
         if self.errorURL in t_response.url:
             # 这里进行二次路径探测，换句话说就是看后面还有没有，有，说明是单独误报
             flag_found = -1
             print('id为 %d 的机场不存在。' % AirportNumber)
             for i in range(1, 6):
                 t_response = requests.get(self.baseURL + str(AirportNumber + max_thread_workers * i),
-                                          allow_redirects=False)
+                                          allow_redirects=False, headers=self.get_header)
                 if self.errorURL not in t_response.headers.get('Location', ''):
                     flag_found = AirportNumber + i * 5
                     break
@@ -611,7 +674,8 @@ class GetAirportInfo:
         insert_sql = "INSERT INTO AirportInfo VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);"
         t_dict = {"Time_Zone": 0, "IATA_Code": '', "ICAO_Code": '', "Country": '', "Continent": '', "Runway": 0,
                   "Airport_Size": '', "Slots_per_five_minutes": 0, "Slot_Availability": 0, "Min_transfer_time": -1,
-                  "Nighttime_ban": 0, "Noise_restrictions": 0, "Passengers": 0, "Cargo": 0, "AirportName": ''}
+                  "Nighttime_ban": 0, "Noise_restrictions": 0, "Passengers": 0, "Cargo": 0, "AirportName": '',
+                  "Region": ''}
 
         def Recursion_ParseAirportInfo(root: bs4_Tag):
             if root.name == 'td':
@@ -625,6 +689,8 @@ class GetAirportInfo:
                     t_dict['IATA_Code'] = root.parent.contents[1].getText()
                 elif root.getText() in ('ICAO 代號', 'ICAO code'):
                     t_dict['ICAO_Code'] = root.parent.contents[1].getText()
+                elif root.getText() in ('區域', 'Region'):
+                    t_dict['Region'] = root.parent.contents[1].contents[0].getText()
                 elif root.getText() in ('國家', 'Country'):
                     t_dict["Country"] = root.parent.contents[1].contents[0].getText()
                 elif root.getText() in ('洲別', 'Continent'):
@@ -639,7 +705,8 @@ class GetAirportInfo:
                 elif root.getText() in ('可用時間帶', 'Slot Availability'):
                     t_dict["Slot_Availability"] = int(root.parent.contents[1].getText().replace('%', '')) / 100
                 elif root.getText() in ('最短轉機時間', 'Min. transfer time'):
-                    if 'transfer impossible' not in root.parent.contents[1].contents[0].getText():
+                    t1 = root.parent.contents[1].contents[0].getText()
+                    if 'transfer impossible' not in t1 or '不可轉機' not in t1:
                         t1: str = root.parent.contents[1].contents[0].getText()
                         t_dict["Min_transfer_time"] = int(t1.split(':')[0]) * 60 + int(t1.split(':')[1])
                 elif root.getText() in ('宵禁', 'Nighttime ban'):
@@ -666,8 +733,8 @@ class GetAirportInfo:
                 Recursion_ParseAirportInfo(unit)
         t_sql = sqlite3.connect(self.DBPath)
         t_sql.execute(insert_sql, (AirportNumber, t_dict["AirportName"], t_dict["Time_Zone"], t_dict["IATA_Code"],
-                                   t_dict["ICAO_Code"], t_dict["Country"], t_dict["Continent"], t_dict["Runway"],
-                                   t_dict["Airport_Size"], t_dict["Slots_per_five_minutes"],
+                                   t_dict["ICAO_Code"], t_dict["Country"], t_dict["Region"], t_dict["Continent"],
+                                   t_dict["Runway"], t_dict["Airport_Size"], t_dict["Slots_per_five_minutes"],
                                    t_dict["Slot_Availability"],
                                    t_dict["Min_transfer_time"], t_dict["Nighttime_ban"], t_dict["Noise_restrictions"],
                                    t_dict["Passengers"], t_dict["Cargo"]))
