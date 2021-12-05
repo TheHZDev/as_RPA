@@ -4,10 +4,10 @@
 
 * 菜单
 
-  - [准备使用](#准备使用)
-  - [自动排程示例](#自动排程示例)
-  - [信息收集示例](#信息收集示例)
-  - [高级自动排程示例](#高级自动排程)
+    - [准备使用](#准备使用)
+    - [自动排程示例](#自动排程示例)
+    - [信息收集示例](#信息收集示例)
+    - [高级自动排程示例](#高级自动排程)
 
 <a id="prepare-use"></a>
 
@@ -17,7 +17,7 @@
 以及使用pip安装以下的包：
 
 ```shell
-pip install requests[socks] beautifulsoup4 html5lib wxPython
+pip install requests[socks] beautifulsoup4 html5lib wxPython zhconv
 ```
 
 本项目初步实现了以下功能：
@@ -84,8 +84,8 @@ Scheme_B_AAA = FleetManager.Experimental_MakeFlightPlanConfig('HKG-REP-HKG', ['S
 ```python
 ToManageFleets = FleetManager.SearchFleets()
 for FleetURL in ToManageFleets.keys():
-  if ToManageFleets.get(FleetURL).get('NickName') == 'B-AAA':
-    FleetManager.UI_AutoMakeFlightPlan(FleetURL, Scheme_B_AAA)
+    if ToManageFleets.get(FleetURL).get('NickName') == 'B-AAA':
+        FleetManager.UI_AutoMakeFlightPlan(FleetURL, Scheme_B_AAA)
 ```
 
 如果在此基础上，还需要为另一架绰号为B-ATU的航机排班，以上代码可修改为
@@ -93,10 +93,10 @@ for FleetURL in ToManageFleets.keys():
 ```python
 ToManageFleets = FleetManager.SearchFleets()
 for FleetURL in ToManageFleets.keys():
-  if ToManageFleets.get(FleetURL).get('NickName') == 'B-AAA':
-    FleetManager.UI_AutoMakeFlightPlan(FleetURL, Scheme_B_AAA)
-  elif ToManageFleets.get(FleetURL).get('NickName') == 'B-ATU':
-    FleetManager.UI_AutoMakeFlightPlan(FleetURL, Scheme_B_AAA)
+    if ToManageFleets.get(FleetURL).get('NickName') == 'B-AAA':
+        FleetManager.UI_AutoMakeFlightPlan(FleetURL, Scheme_B_AAA)
+    elif ToManageFleets.get(FleetURL).get('NickName') == 'B-ATU':
+        FleetManager.UI_AutoMakeFlightPlan(FleetURL, Scheme_B_AAA)
 ```
 
 只需要更改一些条件，就能快捷地分配排班方案。  
@@ -113,13 +113,13 @@ ServerName = input('要登陆的服务器名是：')
 PreLogin = LoginAirlineSim(ServerName, MyUserName, MyPasswd)
 FleetManager = Flight_Planning_Sub_System(PreLogin, ServerName)
 try:
-  Scheme_B_AAA = FleetManager.Experimental_MakeFlightPlanConfig('HKG-REP-HKG', ['Standard'], [150], '16:07')
-  ToManageFleets = FleetManager.SearchFleets()
-  for FleetURL in ToManageFleets.keys():
-    if ToManageFleets.get(FleetURL).get('NickName') == 'B-AAA':
-      FleetManager.UI_AutoMakeFlightPlan(FleetURL, Scheme_B_AAA)
+    Scheme_B_AAA = FleetManager.Experimental_MakeFlightPlanConfig('HKG-REP-HKG', ['Standard'], [150], '16:07')
+    ToManageFleets = FleetManager.SearchFleets()
+    for FleetURL in ToManageFleets.keys():
+        if ToManageFleets.get(FleetURL).get('NickName') == 'B-AAA':
+            FleetManager.UI_AutoMakeFlightPlan(FleetURL, Scheme_B_AAA)
 finally:
-  FleetManager.close()
+    FleetManager.close()
 ```
 
 如果一切顺利且没有出错，您的航机将会排班成功，如您遇到了这样或那样的问题，欢迎使用GitHub的Issue向我提问。
@@ -144,11 +144,11 @@ MyPasswd = input('请输入您在%s服务器上的密码，或者放空：' % Se
 CalcService = CalcAirplaneProperty(ServerName, MyUserName, MyPasswd)
 CalcService.getAirplaneInfoIndex()
 while len(CalcService.cache_CountryIndex) > 0:
-  sleep(30)
+    sleep(30)
 CalcService.getAirCompanyInfoIndex()
 Thread(target=CalcService.thread_getAirplanePrice).start()
 while len(CalcService.cache_AirCompanyURL) > 0 or not CalcService.flag_price_ok:
-  sleep(30)
+    sleep(30)
 sleep(10)
 resultList = CalcService.CalcBalanceSheet()
 # 输出到控制台并非明智之举，可以改为输出到Excel或HTML
@@ -207,10 +207,10 @@ Scheme_B_HMMS = FleetManager.Experimental_MakeFlightPlanConfig('HKG-BLR-HKG-KUL-
 
 ```python
 Scheme_P_257 = [
-  FleetManager.MakeSingleFlightPlan('PEK', 'HKG', 110, 'ServiceD', '4:20', ('T1', 'T2'), 'Max'),
-  FleetManager.MakeSingleFlightPlan('HKG', 'SIN', 200, 'ServiceD', '6:45', ('T2', 'T1'), 'Normal'),
-  FleetManager.MakeSingleFlightPlan('SIN', 'SYD', 50, 'ServiceD', '8:50', ('T1', 'T5'), 'Min'),
-  FleetManager.MakeSingleFlightPlan('SYD', 'PEK', 80, 'ServiceD', '', ('T5', 'T1'), 'Normal')
+    FleetManager.MakeSingleFlightPlan('PEK', 'HKG', 110, 'ServiceD', '4:20', ('T1', 'T2'), 'Max'),
+    FleetManager.MakeSingleFlightPlan('HKG', 'SIN', 200, 'ServiceD', '6:45', ('T2', 'T1'), 'Normal'),
+    FleetManager.MakeSingleFlightPlan('SIN', 'SYD', 50, 'ServiceD', '8:50', ('T1', 'T5'), 'Min'),
+    FleetManager.MakeSingleFlightPlan('SYD', 'PEK', 80, 'ServiceD', '', ('T5', 'T1'), 'Normal')
 ]
 ```
 
