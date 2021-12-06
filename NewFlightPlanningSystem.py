@@ -31,20 +31,21 @@ class NewFlightPlanningSystem:
         :param callback_ReportError: 回调函数，用于向调用方友好地提交中文错误信息
         :param callback_ShowProgressText: 回调函数，用于向调用方传递友好的提示信息
         """
-        # if isinstance(LogonSession, Session):
-        #     self.LogonSession = LogonSession
-        # elif len(UserName) * len(Passwd) > 0:
-        #     from LoginAirlineSim import LoginAirlineSim
-        #     self.LogonSession = LoginAirlineSim(ServerName, UserName, Passwd)
-        # else:
-        #     raise Exception('无法启动排班管理器！')
-        # # 登陆流程，过
-        # self.baseURL = getBaseURL(ServerName)
-        # if len(UserName) * len(Passwd) > 0:
-        #     self.enableMultiSession = True
-        #     self.MultiSessionInfo = [UserName, Passwd]
-        # else:
-        #     self.enableMultiSession = False
+        from LoginAirlineSim import getBaseURL
+        if isinstance(LogonSession, Session):
+            self.LogonSession = LogonSession
+        elif len(UserName) * len(Passwd) > 0:
+            from LoginAirlineSim import LoginAirlineSim
+            self.LogonSession = LoginAirlineSim(ServerName, UserName, Passwd)
+        else:
+            raise Exception('无法启动排班管理器！')
+        # 登陆流程，过
+        self.baseURL = getBaseURL(ServerName)
+        if len(UserName) * len(Passwd) > 0:
+            self.enableMultiSession = True
+            self.MultiSessionInfo = [UserName, Passwd]
+        else:
+            self.enableMultiSession = False
         # 是否允许多会话模式
         self.function_ReportError = callback_ReportError  # 错误汇报
         self.function_ShowProgressText = callback_ShowProgressText  # 信息披露
@@ -268,7 +269,7 @@ class NewFlightPlanningSystem:
                     root.attrs.get('href', '').endswith('/0'):
                 # 扫描到航机
                 tClass = root.attrs.get('class')
-                if 'btn-default' in tClass or (ScanRedFleet and 'btn-danger' in tClass) and \
+                if 'btn-default' in tClass or (ScanRedFleet and 'btn-danger' in tClass) or \
                         (ScanYellowFleet and 'btn-warning' in tClass):
                     if 'btn-warning' in tClass:
                         line_info = {'IsNeedInit': True, 'Yellow/Red': True}  # 排班前需要执行清除策略
