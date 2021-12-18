@@ -444,14 +444,16 @@ class CalcAirplaneProperty:
         select_sql = "SELECT DISTINCT AirCompany FROM Fleets;"
         result_dict = {}
         for AirCompany in t_sql.execute(select_sql).fetchall():
-            result_dict[AirCompany[0]] = 0
+            result_dict[AirCompany[0]] = [0, 0]  # 211218改动：添加了计算已购航机资产的功能
         if len(result_dict) == 0:
             return []
-        cache_AirPriceMap = {}
+        cache_AirPriceMap = {}  # 存储航机价格表
         select_sql = "SELECT AirType, Price FROM AirplaneInfo WHERE AirType in (SELECT DISTINCT AirType " \
                      "FROM Fleets);"
         for line in t_sql.execute(select_sql).fetchall():
             cache_AirPriceMap[line[0]] = line[1]
+        if len(cache_AirPriceMap) == 0:
+            raise Exception('未获取到航机价格信息，无法启动计算！')
         self.callback_outputLog('计算资产中......数据缓存建立完毕！')
         # 初始化完毕
         select_sql = "SELECT AirType, FirstCabin, BusinessCabin, EconomyCabin, IsRented FROM Fleets " \
@@ -459,45 +461,54 @@ class CalcAirplaneProperty:
         for AirCompany in result_dict.keys():
             for line in t_sql.execute(select_sql, (AirCompany,)).fetchall():
                 if line[4] == 1:
-                    result_dict[AirCompany] += cache_AirPriceMap.get(line[0]) / 20
+                    result_dict[AirCompany][0] += cache_AirPriceMap.get(line[0]) / 20
                 else:
-                    result_dict[AirCompany] += cache_AirPriceMap.get(line[0])
-                result_dict[AirCompany] += line[1] * SeatPrice[0] + line[2] * SeatPrice[1] + line[3] * SeatPrice[2]
+                    result_dict[AirCompany][0] += cache_AirPriceMap.get(line[0])
+                    result_dict[AirCompany][1] += cache_AirPriceMap.get(line[0]) + (
+                            line[1] * SeatPrice[0] + line[2] * SeatPrice[1] + line[3] * SeatPrice[2])
+                    # 已购飞机的资产另外列出，但原有合并计算代码保持不变
+                result_dict[AirCompany][0] += line[1] * SeatPrice[0] + line[2] * SeatPrice[1] + line[3] * SeatPrice[2]
+
         self.callback_outputLog('计算资产中......所有航机及座位资产计算完成！')
         # 初始计算完成
         if MergeSubCompany:
             select_sql = "SELECT AirCompany, ParentAirCompany FROM AirCompanyMap;"
             cache_SubCompany = {}
             for line in t_sql.execute(select_sql).fetchall():
-                cache_SubCompany[line[0]] = line[1]
+                cache_SubCompany[line[0]] = line[1]  # 子公司: 对应的母公司
             # 建立子公司映射表缓存
             t_list = []
             for line in cache_SubCompany.keys():
                 if line not in result_dict.keys():
                     t_list.append(line)
             for line in t_list:
+                # 底下并没有任何航机的子公司不参与后续的归并计算（防止计算出错）
                 cache_SubCompany.pop(line)
             flag_continue_merge = True
             while flag_continue_merge:
                 for line in cache_SubCompany.keys():
-                    if result_dict.get(line) > 0:
+                    if result_dict.get(line)[0] > 0:
                         if cache_SubCompany.get(line) not in result_dict.keys():
-                            result_dict[cache_SubCompany.get(line)] = 0
-                        result_dict[cache_SubCompany[line]] += result_dict.get(line)
-                        result_dict[line] = 0
+                            # 考虑到某些企业并没有实际运营航空公司而是交由子公司运营的情况
+                            result_dict[cache_SubCompany.get(line)] = [0, 0]
+                        result_dict[cache_SubCompany[line]][0] += result_dict.get(line)[0]
+                        result_dict[line][0] = 0
+                        result_dict[cache_SubCompany[line]][1] += result_dict.get(line)[1]
+                        result_dict[line][1] = 0
                 # 循环归并，相当于冒泡排序
                 flag_continue_merge = False
                 for line in cache_SubCompany.keys():
-                    if result_dict.get(line) > 0:
-                        # 当满足所有子公司现金都为0的时候，归并计算结束
+                    if result_dict.get(line)[0] > 0:
+                        # 当满足所有子公司资产数额都为0的时候，归并计算结束
                         flag_continue_merge = True
                         break
             for line in cache_SubCompany.keys():
                 result_dict.pop(line)  # 删除资产为0的子公司
             self.callback_outputLog('计算资产中......子公司归并计算完毕！')
+        t_sql.close()
         result_list = []
         for AirCompany in result_dict.keys():
-            result_list.append((AirCompany, result_dict.get(AirCompany)))
+            result_list.append((AirCompany, result_dict.get(AirCompany)[0], result_dict.get(AirCompany)[1]))
 
         def _cmp(x, y):
             if x[1] > y[1]:
@@ -518,9 +529,9 @@ class CalcAirplaneProperty:
             tWorkBook = openpyxl.Workbook()
             tTable = tWorkBook.active
             tTable.title = self.ServerName
-            tTable.append(('企业名称', '资产数额/K AS$'))
+            tTable.append(('企业名称', '资产数额/K AS$', '已购飞机资产额/K AS$'))
             for line in CalcData:
-                tTable.append((line[0], str(line[1] / 1000)))
+                tTable.append((line[0], str(line[1] / 1000), str(line[2] / 1000)))
             if FilePath == '' or not isinstance(FilePath, str):
                 from datetime import datetime
                 FilePath = datetime.now().strftime('%Y%m%d.xlsx')
@@ -535,28 +546,18 @@ class CalcAirplaneProperty:
 
     def OutputPropertyToHTML(self, CalcData: list, FilePath: str = ''):
         """导出资产数据到HTML页面"""
-        import base64
-        example_html = base64.b64decode((b"""
-        PCFET0NUWVBFIGh0bWw+DQo8aHRtbCBsYW5nPSJlbiI+DQo8aGVhZD4NCiAgICA8bWV0YSBjaGFyc2V0PSJVVEYtOCI+DQogICAgPHRpdGxlPkF
-        T6LWE5Lqn57uf6K6h566A5piT5oql6KGoPC90aXRsZT4NCjwvaGVhZD4NCjxzdHlsZT4NCiAgICB0YWJsZSwgdGgsIHRkIHsNCiAgICAgICAgYm
-        9yZGVyOiAxcHggc29saWQgYmxhY2s7DQogICAgICAgIHRleHQtYWxpZ246IGNlbnRlcjsNCiAgICB9DQoNCiAgICB0YWJsZSB7DQogICAgICAgI
-        GJvcmRlci1jb2xsYXBzZTogY29sbGFwc2U7DQogICAgICAgIGZvbnQtc2l6ZTogeC1sYXJnZTsNCiAgICB9DQoNCiAgICB0ZCB7DQogICAgICAg
-        IHdvcmQtYnJlYWs6IGJyZWFrLXdvcmQ7DQogICAgICAgIHBhZGRpbmc6IDJtbTsNCiAgICB9DQoNCiAgICB0cjpudGgtY2hpbGQoZXZlbikgew0
-        KICAgICAgICBiYWNrZ3JvdW5kLWNvbG9yOiBsaWdodGdyYXk7DQogICAgfQ0KPC9zdHlsZT4NCjxib2R5Pg0KPGRpdj4NCiAgICA8dGFibGUgaW
-        Q9Ik1haW5UYWJsZSI+DQogICAgICAgIDx0cj4NCiAgICAgICAgICAgIDx0aD7mr43lhazlj7jlkI3np7A8L3RoPg0KICAgICAgICAgICAgPHRoP
-        ui1hOS6p+aVsOminTwvdGg+DQogICAgICAgIDwvdHI+DQogICAgPC90YWJsZT4NCjwvZGl2Pg0KPHNjcmlwdD4NCiAgICBmdW5jdGlvbiBBZGRO
-        ZXdUYWJsZUxpbmUoQ29tcGFueU5hbWUsIFByb3BlcnR5KSB7DQogICAgICAgIGxldCBNYWluVGFibGUgPSBkb2N1bWVudC5nZXRFbGVtZW50Qnl
-        JZCgiTWFpblRhYmxlIik7DQogICAgICAgIGxldCBlX3RyID0gZG9jdW1lbnQuY3JlYXRlRWxlbWVudCgndHInKTsNCiAgICAgICAgbGV0IGVfdG
-        RfMSA9IGRvY3VtZW50LmNyZWF0ZUVsZW1lbnQoJ3RkJyk7DQogICAgICAgIGxldCBlX3RkXzIgPSBkb2N1bWVudC5jcmVhdGVFbGVtZW50KCd0Z
-        CcpOw0KICAgICAgICBlX3RkXzEuaW5uZXJUZXh0ID0gQ29tcGFueU5hbWU7DQogICAgICAgIGVfdGRfMi5pbm5lclRleHQgPSBQcm9wZXJ0eTsN
-        CiAgICAgICAgZV90ci5hcHBlbmRDaGlsZChlX3RkXzEpOw0KICAgICAgICBlX3RyLmFwcGVuZENoaWxkKGVfdGRfMik7DQogICAgICAgIE1haW5
-        UYWJsZS5hcHBlbmRDaGlsZChlX3RyKTsNCiAgICB9DQoNCiAgICB3aW5kb3cub25sb2FkID0gZnVuY3Rpb24gKCkgew0KDQogICAgfQ0KPC9zY3
-        JpcHQ+DQo8L2JvZHk+DQo8L2h0bWw+
-        """).replace(b'\n', b'').replace(b'\r', b'')).decode('UTF-8')
-        # 替换对应行数据（索引49）
-        list_html = example_html.splitlines()
-        pre_html_load = ''.join(["AddNewTableLine('%s', '%.2f K');" % (i[0], i[1] / 1000) for i in CalcData])
-        list_html[49] = pre_html_load
+        from os.path import isfile
+        from os import getcwd, sep
+        templateHTML_path = getcwd() + sep + 'TemplateHTML' + sep + 'GetOtherInfo_OutputHTML_Template.html'
+        if not isfile(templateHTML_path):
+            self.callback_outputLog('导出失败！请重新下载HTML模板文件！')
+        # 替换对应行数据（索引53）
+        templateHTML = open(templateHTML_path, 'r', encoding='UTF-8')
+        list_html = templateHTML.read().splitlines()
+        templateHTML.close()
+        pre_html_load = ''.join(
+            ["AddNewTableLine('%s', '%.2f', '%.2f');" % (i[0], i[1] / 1000, i[2] / 1000) for i in CalcData])
+        list_html[53] = pre_html_load  # 这里实际上是替换了window.onload函数，实现表格数据添加
         if FilePath == '' or not isinstance(FilePath, str):
             from datetime import datetime
             FilePath = datetime.now().strftime('%Y%m%d.html')

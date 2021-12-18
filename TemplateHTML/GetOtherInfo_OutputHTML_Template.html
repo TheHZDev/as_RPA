@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>AS资产统计简易报表</title>
+</head>
+<style>
+    table, th, td {
+        border: 1px solid black;
+        text-align: center;
+    }
+
+    table {
+        border-collapse: collapse;
+        font-size: x-large;
+    }
+
+    td {
+        word-break: break-word;
+        padding: 2mm;
+    }
+
+    tr:nth-child(even) {
+        background-color: lightgray;
+    }
+</style>
+<body>
+<div>
+    <table id="MainTable">
+        <tr>
+            <th>母公司名称</th>
+            <th>总资产数额(K AS$)</th>
+            <th>已购飞机资产额(K AS$)</th>
+        </tr>
+    </table>
+</div>
+<script>
+    function AddNewTableLine(CompanyName, Property, RealWorth) {
+        let MainTable = document.getElementById("MainTable");
+        let e_tr = document.createElement('tr');
+        let e_td_1 = document.createElement('td');
+        let e_td_2 = document.createElement('td');
+        let e_td_3 = document.createElement('td');
+        e_td_1.innerText = CompanyName;
+        e_td_2.innerText = Property;
+        e_td_3.innerText = RealWorth;
+        e_tr.appendChild(e_td_1);
+        e_tr.appendChild(e_td_2);
+        e_tr.appendChild(e_td_3);
+        MainTable.appendChild(e_tr);
+    }
+
+    window.onload = function () {
+
+    }
+</script>
+</body>
+</html>
