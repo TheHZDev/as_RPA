@@ -1,4 +1,5 @@
 from bs4 import BeautifulSoup
+from bs4.element import Tag as bs4_Tag
 from openpyxl.worksheet.worksheet import Worksheet
 from requests import Response
 
@@ -10,7 +11,6 @@ def GetClearHTML(HTML: Response, PreFilter=None):
     :param PreFilter: 字符串预处理函数，将执行此函数以初始化需要处理的文本
     :return: BeautifulSoup结构体
     """
-
     # 预过滤器处理
     if callable(PreFilter):
         try:
@@ -27,11 +27,10 @@ def GetClearHTML(HTML: Response, PreFilter=None):
     return BeautifulSoup(html_str, 'html5lib')
 
 
-def CommonHTMLParser(HTML: BeautifulSoup, function_Parser, DataVarTemplate=None):
+def CommonHTMLParser(HTML: bs4_Tag, function_Parser, DataVarTemplate=None):
     """通用HTML解析函数"""
     if not callable(function_Parser):
         raise Exception('function_Parser必须是可调用函数！')
-    from bs4.element import Tag
     if DataVarTemplate is None:
         DataCache = {}
     elif hasattr(DataVarTemplate, 'copy') and callable(getattr(DataVarTemplate, 'copy')):
@@ -39,17 +38,17 @@ def CommonHTMLParser(HTML: BeautifulSoup, function_Parser, DataVarTemplate=None)
     else:
         DataCache = DataVarTemplate
 
-    def Recursion_ParseHTML(root: Tag):
+    def recursion_ParseHTML(root: bs4_Tag):
         result = function_Parser(root, DataCache)
         if isinstance(result, bool) and result:
             return
         for t_unit in root.children:
-            if isinstance(t_unit, Tag):
-                Recursion_ParseHTML(t_unit)
+            if isinstance(t_unit, bs4_Tag):
+                recursion_ParseHTML(t_unit)
 
     for unit in HTML.children:
-        if isinstance(unit, Tag):
-            Recursion_ParseHTML(unit)
+        if isinstance(unit, bs4_Tag):
+            recursion_ParseHTML(unit)
     return DataCache
 
 
