@@ -529,9 +529,11 @@ class CalcAirplaneProperty:
             tWorkBook = openpyxl.Workbook()
             tTable = tWorkBook.active
             tTable.title = self.ServerName
-            tTable.append(('企业名称', '资产数额/K AS$', '已购飞机资产额/K AS$'))
+            tTable.append(('排名', '企业名称', '资产数额/K AS$', '已购飞机资产额/K AS$'))
+            order_int = 1
             for line in CalcData:
-                tTable.append((line[0], str(line[1] / 1000), str(line[2] / 1000)))
+                tTable.append((str(order_int), line[0], str(line[1] / 1000), str(line[2] / 1000)))
+                order_int += 1
             if FilePath == '' or not isinstance(FilePath, str):
                 from datetime import datetime
                 FilePath = datetime.now().strftime('%Y%m%d.xlsx')
@@ -550,7 +552,7 @@ class CalcAirplaneProperty:
         from os import getcwd, sep
         templateHTML_path = getcwd() + sep + 'TemplateHTML' + sep + 'GetOtherInfo_OutputHTML_Template.html'
         if not isfile(templateHTML_path):
-            self.callback_outputLog('导出失败！请重新下载HTML模板文件！')
+            raise FileNotFoundError('导出失败！请重新下载HTML模板文件！')
         # 替换对应行数据（索引53）
         templateHTML = open(templateHTML_path, 'r', encoding='UTF-8')
         list_html = templateHTML.read().splitlines()
