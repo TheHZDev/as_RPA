@@ -11,13 +11,16 @@ try:
     from local_debug import flag_Debug
 
     Debug_Allow_TLS_Verify = not flag_Debug
-except:
+except ModuleNotFoundError:
     Debug_Allow_TLS_Verify = True
 
 
 class NewFlightPlanningSystem:
     cache_info = {}  # 全局信息池
     flag_no_sub_company = True  # 无子公司
+    # 运行时数据
+    runtime_cache_service = {}  # 运行时服务方案信息及其对应ID
+    runtime_cache_stations = {}  # 运行时机场信息及其对应ID
 
     def __init__(self, LogonSession: Session, ServerName: str, UserName: str = '', Passwd: str = '',
                  callback_ReportError=None, callback_ShowProgressText=None,
@@ -50,7 +53,7 @@ class NewFlightPlanningSystem:
         self.function_ReportError = callback_ReportError  # 错误汇报
         self.function_ShowProgressText = callback_ShowProgressText  # 信息披露
 
-    def close(self):
+    def Close(self):
         """请使用该函数注销AirlineSim会话"""
         target_url = 'https://sar.simulogics.games/api/sessions/' + \
                      self.LogonSession.cookies.get('as-sid').split('_')[0]
@@ -77,30 +80,25 @@ class NewFlightPlanningSystem:
 
     def SearchAllSubCompany(self):
         """搜索所有的子公司信息，并确认是否有建立公司、只有母公司和多子公司的情况。"""
-        MainPage = self.RetryGET(self.baseURL)
+        MainPage = self.retryGET(self.baseURL)
         if 'as-no-enterprise' in MainPage.text:
             # 这个class出现说明这个账号在该服务器没有开设企业
             self.basic_ReportError('没有设立企业！')
             return
 
-        def Recursion_ParseSubCompany(root: bs4_Tag):
+        def parseHTML_ParseSubCompany(root: bs4_Tag, dataDict: dict):
             if root.name == 'a':
                 if 'name' in root.attrs.get('class', []) and \
                         root.attrs.get('href', '').endswith('/app/enterprise/dashboard'):
                     parent_company = root.getText().strip()
-                    self.cache_info[parent_company] = {}
+                    dataDict[parent_company] = {}
                 elif '/app/enterprise/dashboard?select=' in root.attrs.get('href', ''):
                     self.flag_no_sub_company = False
                     sub_company = root.getText().strip()  # 子公司名称
                     sub_company_id = root.attrs.get('href').split('dashboard?select=')[1]  # 子公司的唯一ID
-                    self.cache_info[sub_company] = {'ID': sub_company_id}
-            for t_unit in root.children:
-                if isinstance(t_unit, bs4_Tag):
-                    Recursion_ParseSubCompany(t_unit)
+                    dataDict[sub_company] = {'ID': sub_company_id}
 
-        for unit in GetClearHTML(MainPage).children:
-            if isinstance(unit, bs4_Tag):
-                Recursion_ParseSubCompany(unit)
+        self.cache_info.update(CommonHTMLParser(GetClearHTML(MainPage), parseHTML_ParseSubCompany))
 
     def SearchAirlineInfo(self, AutoSearchSubCompany: bool = False):
         """
@@ -112,13 +110,13 @@ class NewFlightPlanningSystem:
                 self.SwitchToSubCompany(sub_company)
                 self.SearchAirlineInfo()
             return
-        DashboardPage = self.RetryGET(self.baseURL + '/app/enterprise/dashboard')
+        DashboardPage = self.retryGET(self.baseURL + '/app/enterprise/dashboard')
         CurrentCompany = self.GetCurrentCompanyName(DashboardPage)
         if len(self.cache_info.get(CurrentCompany).get('Fleets', {})) == 0:
             return
         for fleet in self.cache_info.get(CurrentCompany).get('Fleets').values():
             url = fleet.get('url')
-            AirlinePage = self.RetryGET(url)
+            AirlinePage = self.retryGET(url)
 
             def GetBasicInfo(root: bs4_Tag, DataList: list):
                 if root.name == 'select':
@@ -136,14 +134,14 @@ class NewFlightPlanningSystem:
                                                           [[], []])
             # 这里加一个判断，适用于那种连现有航班号都没有的情况
             if len(service_list) == 0 or len(airport_list) == 0:
-                current_random = self.GetCurrentRandom(AirlinePage)
+                current_random = self.getCurrentRandom(AirlinePage)
                 t_url = 'IBehaviorListener.0-tabs-panel-newFlight-flightNumber-toggle~new-link'
                 t_header = {'Wicket-Ajax': 'true', 'X-Requested-With': 'XMLHttpRequest',
                             'Wicket-Ajax-BaseURL': AirlinePage.url.split('/app/')[1],
                             'Wicket-FocusedElementId':
                                 AirlinePage.text.split(t_url + '"')[1].split('"c":"')[1].split('"')[0]}
                 t_url = current_random + t_url + '&_=%d' % self.getTimestamp()
-                NewAirlinePage = self.RetryGET(t_url, headers=t_header)
+                NewAirlinePage = self.retryGET(t_url, headers=t_header)
 
                 # 这还是XML文档里夹了一个HTML文档
 
@@ -166,7 +164,7 @@ class NewFlightPlanningSystem:
                 self.SearchTerminalInfo()
             return
         target_url = self.baseURL + '/app/ops/stations'
-        first_result = self.RetryGET(target_url)
+        first_result = self.retryGET(target_url)
         CurrentCompany = self.GetCurrentCompanyName(first_result)
 
         def ParseHTML_GetStationsInfo(root: bs4_Tag, DataDict: dict):
@@ -239,9 +237,9 @@ class NewFlightPlanningSystem:
                 return True
 
         for station in ExtraTerminal:
-            self.RetryGET(station[1])
+            self.retryGET(station[1])
             self.cache_info.get(CurrentCompany).get('StationsInfo').get(station[0])['ExtraTerminal'] = \
-                CommonHTMLParser(GetClearHTML(self.RetryGET(station[1] + '?tabs=4')), ParseHTML_GetTerminalInfo, [])
+                CommonHTMLParser(GetClearHTML(self.retryGET(station[1] + '?tabs=4')), ParseHTML_GetTerminalInfo, [])
             # 解析额外航站楼信息完成
 
     def SearchFleets(self, ScanYellowFleet: bool = False, ScanRedFleet: bool = False,
@@ -259,12 +257,12 @@ class NewFlightPlanningSystem:
                 self.SearchFleets(ScanYellowFleet, ScanRedFleet)
             return
         fleets_url = self.baseURL + '/app/fleets'
-        FleetsManager = self.RetryGET(fleets_url)
+        FleetsManager = self.retryGET(fleets_url)
         CurrentCompany = self.GetCurrentCompanyName(FleetsManager)
         if 'Fleets' not in self.cache_info.get(CurrentCompany).keys():
             self.cache_info.get(CurrentCompany)['Fleets'] = {}
 
-        def Recursion_ParseFleetsInfo(root: bs4_Tag):
+        def parseHTML_GetFleetsInfo(root: bs4_Tag, dataDict: dict):
             if root.name == 'a' and '/fleets/aircraft/' in root.attrs.get('href', '') and \
                     root.attrs.get('href', '').endswith('/0'):
                 # 扫描到航机
@@ -305,14 +303,187 @@ class NewFlightPlanningSystem:
                             t_list[t2] = int(t1.getText())
                             t2 += 1
                     line_info['Y/C/F'] = t_list
-                    self.cache_info.get(CurrentCompany).get('Fleets')[RegisterID] = line_info
-            for UNIT in root.children:
-                if isinstance(UNIT, bs4_Tag):
-                    Recursion_ParseFleetsInfo(UNIT)
+                    dataDict[RegisterID] = line_info
+                return True
 
-        for unit in GetClearHTML(FleetsManager).children:
-            if isinstance(unit, bs4_Tag):
-                Recursion_ParseFleetsInfo(unit)
+        self.cache_info.get(CurrentCompany).get('Fleets').update(
+            CommonHTMLParser(GetClearHTML(FleetsManager), parseHTML_GetFleetsInfo))
+
+    # 系统执行区
+    """
+    自动排班管理流程：
+    1、首先确定需要排班的企业，使用SwitchToSubCompany函数切换到指定企业。
+    2、（可选）分析全部待排班的航机的排程，确保里面的航站都是已经开设的。
+    3、重新加载航线数据，包括需要使用的航站ID、服务方案ID。
+    4、以航机注册号为索引，进入航班管理界面，使用任意可用新航班号码建立新航班。
+    5、根据情况，使得航机减速或加速，然后有针对性地调节航班的各天起飞时刻（如果所有起飞时间都错误，先调总体的，否则调个体）。
+    6、连同航机的服务方案和航站楼选择一起提交到服务端。
+    7、根据选择执行或延后或锁定航班计划。
+    -----------
+    基类实现：
+    重载信息收集（初始化功能）
+    建立新航班+处理错误时刻+维护比报告
+    根据参数执行航班计划
+    开设新航站
+    清空无用航班号码
+    ---------------
+    子类实现：
+    切换公司+调用重载信息收集
+    航站航线分析+检查开设新航站
+    手动清空无用航线号码
+    从子类结构化数据构建新航班
+    管理航机维护比例
+    """
+
+    def EstablishNewAirline(self, SrcAirport: str, DstAirport: str, Price: int, Service: str, WeekPlan: list,
+                            SrcTerminal: str = None, DstTerminal: str = None, DepartureHour: int = -1,
+                            DepartureMinute: int = -1, SimpleSpeedConfig: int = 0):
+        """
+        根据参数建立新航班，航班号为自动获取（效率优先），可处理错误时刻问题。
+        :param SrcAirport: 出发机场，可以是IATA代号
+        :param DstAirport: 目的机场，可以是IATA代号
+        :param Price: 价格系数，50 ~ 200
+        :param Service: 服务方案
+        :param WeekPlan: 周计划排班，同时影响了错误时刻处理的判断
+        :param SrcTerminal: 出发航站楼
+        :param DstTerminal: 目的航站楼
+        :param DepartureHour: 出发时间，小时，不填使用系统推荐时间
+        :param DepartureMinute: 出发时间，分钟，不填使用系统推荐时间
+        :param SimpleSpeedConfig: 简单速度设置，-1表示全减速，1表示全加速，0表示常速
+        :return:
+        """
+        pass
+
+    def ClearUnusableAirlineNumber(self):
+        """清理掉不再被任意航机所使用的航班号码，从而为新的航班创建释放空间（自动排班需要建立新航班）"""
+        airlinePage_url = self.baseURL + '/app/com/numbers'
+        airlinePage = self.retryGET(airlinePage_url)
+
+        def parseHTML_GetHiddenPara(root: bs4_Tag, dataDict: dict):
+            if root.name == 'form' and root.attrs.get('action', '').endswith('IFormSubmitListener-deleteUnusedForm'):
+                dataDict.update(CommonHTMLParser(root, self.parseNode_GetHiddenPara))
+                return True
+
+        self.retryPOST(self.getCurrentRandom(airlinePage) + 'IFormSubmitListener-deleteUnusedForm',
+                       data=CommonHTMLParser(GetClearHTML(airlinePage), parseHTML_GetHiddenPara))
+
+    def PreCollectRuntimeAirlineBasicInfo(self, airlinePlanURL: str, lastResponse: Response = None):
+        """收集航班的基础性前置信息，即航站对应表和服务方案对应表"""
+        self.runtime_cache_service.clear()
+        self.runtime_cache_stations.clear()
+        if not isinstance(lastResponse, Response):
+            lastResponse = self.retryGET(airlinePlanURL)
+
+        def parseHTML_GetServiceInfo(root: bs4_Tag, dataDict: dict):
+            if root.name == 'select' and root.attrs.get('name', '') == 'origin':
+                for node in root.children:
+                    if isinstance(node, bs4_Tag) and node.attrs.get('value', '') != '':
+                        dataDict[node.getText().strip()] = node.attrs.get('value')
+                return True
+
+        def parseHTML_GetStationsInfo(root: bs4_Tag, dataDict: dict):
+            if root.name == 'select' and root.attrs.get('name', '') == 'service':
+                for node in root.children:
+                    if isinstance(node, bs4_Tag) and node.attrs.get('value', '') != '':
+                        dataDict[node.getText().strip()] = node.attrs.get('value')
+                return True
+
+        public_response = GetClearHTML(lastResponse)
+        self.runtime_cache_service.update(CommonHTMLParser(public_response, parseHTML_GetServiceInfo))
+        self.runtime_cache_stations.update(CommonHTMLParser(public_response, parseHTML_GetStationsInfo))
+
+    def SetUpNewStation(self, NewStationNames: list):
+        """
+        获取信息并开设新航站，新航站名称推荐使用IATA名称
+        :param NewStationNames: 新航站名称（一个或多个）
+        """
+        if isinstance(NewStationNames, str):
+            NewStationNames = [NewStationNames]
+        stationPage_url = self.baseURL + '/app/ops/stations'
+        stationPage = self.retryGET(stationPage_url)
+        # 循环开设新航站
+        ask_url_suffix = 'IBehaviorListener.0-stations-stations.open.form-airport~group-airport~group_body-airport'
+        post_url_suffix = 'IFormSubmitListener-stations-stations.open.form'
+
+        def parseHTML_Get_Ajax_http_Header(root: bs4_Tag, dataDict: dict):
+            if root.name == 'form' and root.attrs.get('action', '').endswith(post_url_suffix):
+                dataDict['Wicket-Ajax'] = 'true'
+                dataDict['Wicket-Ajax-BaseURL'] = 'ops' + root.attrs.get('action')[1:].split('-')[0]
+
+                def parseNode_GetIDOfInput(node: bs4_Tag, dataDict1: dict):
+                    if node.name == 'input' and node.attrs.get('name',
+                                                               '') == 'airport-group:airport-group_body:airport':
+                        dataDict1['Wicket-FocusedElementId'] = node.attrs.get('id')
+                        return True
+
+                dataDict.update(CommonHTMLParser(root, parseNode_GetIDOfInput))
+                return True
+
+        def parseHTML_GetHiddenPara(root: bs4_Tag, dataDict: dict):
+            if root.name == 'form' and root.attrs.get('action', '').endswith(post_url_suffix):
+                dataDict.update(CommonHTMLParser(root, self.parseNode_GetHiddenPara))
+                return True
+
+        def parseXML_CompareAndSelectStation(root: bs4_Tag, dataDict: dict):
+            if 'airport-group:airport-group_body:airport' not in dataDict.keys() and root.name == 'li':
+                if dataDict.get('name') in root.getText().strip():
+                    dataDict.pop('name')
+                    dataDict['airport-group:airport-group_body:airport'] = root.attrs.get('textvalue')
+                    return True
+
+        for newStation in NewStationNames:
+            currentPageBS = GetClearHTML(stationPage)
+            http_ajax_header = {}
+            http_ajax_header.update(self.LogonSession.headers.copy())
+            http_ajax_header['Referer'] = stationPage.url
+            http_ajax_header['X-Requested-With'] = 'XMLHttpRequest'
+            http_ajax_header.update(CommonHTMLParser(currentPageBS, parseHTML_Get_Ajax_http_Header))
+            # 构建异步AJAX交互
+            ask_url = self.getCurrentRandom(stationPage) + ask_url_suffix + '&q=%s&_=%d' % (
+                newStation, self.getTimestamp())
+            ask_result = self.retryGET(ask_url, headers=http_ajax_header)
+            # 在服务器上执行模糊查找
+            post_data = CommonHTMLParser(GetClearHTML(ask_result), parseXML_CompareAndSelectStation,
+                                         {'name': str(newStation)})
+            if 'airport-group:airport-group_body:airport' in post_data.keys():
+                # 没有就是无法识别航站名称
+                post_data.update(CommonHTMLParser(currentPageBS, parseHTML_GetHiddenPara))
+                post_http_header = {}
+                post_http_header.update(self.LogonSession.headers.copy())
+                post_http_header['Referer'] = stationPage.url
+                stationPage = self.retryPOST(self.getCurrentRandom(stationPage) + post_url_suffix,
+                                             data=post_data, headers=post_http_header)
+                self.basic_ShowProgress('新航站 %s 已成功开设。' % newStation)
+            else:
+                self.basic_ReportError('找不到航站 %s ，因此没有任何操作。' % newStation)
+
+    def ExecuteAirlinePlan(self, UserSelect: int, AirplaneURL: str, LastResponse: Response = None):
+        """
+        执行航班计划，航班计划共有4个可选选项：
+        1 - 立即执行航班计划
+        2 - 延迟三天执行航班计划
+        3 - 锁定航班计划
+        4 - 清空航班计划
+        :param UserSelect: 执行的用户选择
+        :param AirplaneURL: 航机排班界面的URL
+        :param LastResponse: 上次使用的响应包，通常是建立新航线后留下的
+        """
+        if not (1 <= UserSelect <= 4 and isinstance(UserSelect, int)):
+            raise ValueError('参数UserSelect必须是1~4之间的正整数！')
+        if not isinstance(LastResponse, Response):
+            LastResponse = self.retryGET(AirplaneURL)
+        post_data = {'select': str(UserSelect)}
+
+        def parseHTML_GetHiddenPara(root: bs4_Tag, dataDict: dict):
+            if root.name == 'form' and root.attrs.get('action', '').endswith(
+                    'IFormSubmitListener-tabs-panel-visualFlightPlan-action'):
+                dataDict.update(CommonHTMLParser(root, self.parseNode_GetHiddenPara))
+                return True
+
+        post_data.update(CommonHTMLParser(GetClearHTML(LastResponse), parseHTML_GetHiddenPara))
+        self.retryPOST(self.getCurrentRandom(LastResponse) + 'IFormSubmitListener-tabs-panel-visualFlightPlan-action',
+                       data=post_data)
+        self.basic_ShowProgress('航班计划已提交。')
 
     # 系统辅助函数区
     def SwitchToSubCompany(self, SubCompanyName: str, tSession: Session = None):
@@ -333,7 +504,7 @@ class NewFlightPlanningSystem:
                 theSession.cookies.set(cookie, self.cache_info.get(SubCompanyName).get('ID'))
                 return
         # 没找到？让对面自己加上来就行了
-        self.RetryGET(self.baseURL + '/app/enterprise/dashboard', tSession=theSession)
+        self.retryGET(self.baseURL + '/app/enterprise/dashboard', tSession=theSession)
         self.SwitchToSubCompany(SubCompanyName, theSession)  # 套娃调用
 
     def GetCurrentCompanyName(self, CurrentPage: Response) -> str:
@@ -356,7 +527,7 @@ class NewFlightPlanningSystem:
             return ''
 
     @staticmethod
-    def GetCurrentRandom(CurrentPage: Response) -> str:
+    def getCurrentRandom(CurrentPage: Response) -> str:
         """提取响应的随机数以便访问时不会出错"""
         from urllib.parse import urlparse
         url_prefix = './' + urlparse(CurrentPage.url).path.split('/')[-1] + '?' + urlparse(CurrentPage.url).query
@@ -369,9 +540,9 @@ class NewFlightPlanningSystem:
         :return: 机场全称
         """
         try:
-            t1 = set([])
+            t1 = set()
             for company in self.cache_info.keys():
-                t1.update(self.cache_info.get(company).get('Airport', []))
+                t1.update(self.cache_info.get(company).get('StationsInfo', {}).keys())
             for airportName in t1:
                 if SimpleName in airportName:
                     t1.clear()
@@ -380,7 +551,7 @@ class NewFlightPlanningSystem:
             return ''
 
     # 基础辅助函数区
-    def RetryGET(self, url: str, headers: dict = None, RetryTimes: int = 3, tSession: Session = None):
+    def retryGET(self, url: str, headers: dict = None, RetryTimes: int = 3, tSession: Session = None):
         if isinstance(tSession, Session):
             theSession = tSession
         else:
@@ -397,7 +568,7 @@ class NewFlightPlanningSystem:
                 sleep(3)
         return Response()
 
-    def RetryPOST(self, url: str, data=None, json=None, headers: dict = None, RetryTimes: int = 3,
+    def retryPOST(self, url: str, data=None, json=None, headers: dict = None, RetryTimes: int = 3,
                   tSession: Session = None):
         if isinstance(tSession, Session):
             theSession = tSession
@@ -417,6 +588,14 @@ class NewFlightPlanningSystem:
         return Response()
 
     @staticmethod
+    def parseNode_GetHiddenPara(node: bs4_Tag, dataDict: dict):
+        """当解析对象是一个Form节点的时候，可以直接用此函数获取内部特定隐藏节点值（应该是防机器人吧）"""
+        if node.name == 'input' and node.attrs.get('type', '') == 'hidden' and \
+                node.attrs.get('name', '').startswith('id_') and node.parent.name == 'div':
+            dataDict.update({node.attrs.get('name'): ''})
+            return True
+
+    @staticmethod
     def getTimestamp() -> int:
         """时间戳集成"""
         from time import time
@@ -430,12 +609,12 @@ class NewFlightPlanningSystem:
         try:
             if callable(self.function_ReportError):
                 self.function_ReportError(ErrInfo)
-        except:
+        finally:
             pass
 
     def basic_ShowProgress(self, ProgressInfo: str):
         try:
             if callable(self.function_ShowProgressText):
                 self.function_ShowProgressText(ProgressInfo)
-        except:
+        finally:
             pass
