@@ -1275,3 +1275,11 @@ class IntelligentRecommendation:
         SELECT DISTINCT SrcAirport, DstAirport FROM %s;
         """ % tableName
         return select_sql
+
+    """
+    智能排班想法（以KWI为例）：
+    1、将机场依据不同的需求分类，比如6~10Bar的为一类，4~5Bar为一类，2~3Bar的为一类，1Bar的尽量排除掉
+    2、先考虑周边国家/地区的航点，优先考虑5级以上的航机（但是服务和价格没说）
+    3、周边航点挖掘完利润后，从KWI考虑进入欧洲地区的航点，或者考虑下前往澳大利亚
+    4、从欧洲撒网去亚洲和非洲，非洲的部分4级以上航点可以和5级以上享受同等待遇（亚非联动的时候可适当考量小体型飞机）
+    """

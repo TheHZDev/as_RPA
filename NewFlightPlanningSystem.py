@@ -3,7 +3,7 @@ from urllib.request import getproxies
 from bs4.element import Tag as bs4_Tag
 from requests import Session, Response
 
-from PublicCode import GetClearHTML, CommonHTMLParser
+from PublicCode import GetClearHTML, CommonHTMLParser, Localization
 
 LocalProxier = {'http': '', 'https': ''}
 LocalProxier.update(getproxies())
@@ -36,10 +36,10 @@ class NewFlightPlanningSystem:
         """
         from LoginAirlineSim import getBaseURL
         if isinstance(LogonSession, Session):
-            self.LogonSession = LogonSession
+            self.logonSession = LogonSession
         elif len(UserName) * len(Passwd) > 0:
             from LoginAirlineSim import LoginAirlineSim
-            self.LogonSession = LoginAirlineSim(ServerName, UserName, Passwd)
+            self.logonSession = LoginAirlineSim(ServerName, UserName, Passwd)
         else:
             raise Exception('无法启动排班管理器！')
         # 登陆流程，过
@@ -56,10 +56,10 @@ class NewFlightPlanningSystem:
     def Close(self):
         """请使用该函数注销AirlineSim会话"""
         target_url = 'https://sar.simulogics.games/api/sessions/' + \
-                     self.LogonSession.cookies.get('as-sid').split('_')[0]
-        self.LogonSession.headers['Authorization'] = 'Bearer ' + self.LogonSession.cookies.get('as-sid')
-        self.LogonSession.delete(target_url, proxies=LocalProxier)
-        self.LogonSession.close()
+                     self.logonSession.cookies.get('as-sid').split('_')[0]
+        self.logonSession.headers['Authorization'] = 'Bearer ' + self.logonSession.cookies.get('as-sid')
+        self.logonSession.delete(target_url, proxies=LocalProxier)
+        self.logonSession.close()
 
     # 信息函数区
     def SearchInfoIntelligently(self, AutoSearchSubCompany: bool = False, ScanYellowFleet: bool = False,
@@ -335,11 +335,12 @@ class NewFlightPlanningSystem:
     管理航机维护比例
     """
 
-    def EstablishNewAirline(self, SrcAirport: str, DstAirport: str, Price: int, Service: str, WeekPlan: list,
-                            SrcTerminal: str = None, DstTerminal: str = None, DepartureHour: int = -1,
-                            DepartureMinute: int = -1, SimpleSpeedConfig: int = 0):
+    def EstablishNewAirline(self, AirLineURL: str, SrcAirport: str, DstAirport: str, Price: int, Service: str,
+                            WeekPlan: list, SrcTerminal: str = None, DstTerminal: str = None, DepartureHour: int = -1,
+                            DepartureMinute: int = -1, SimpleSpeedConfig: int = 0, LastResponse: Response = None):
         """
-        根据参数建立新航班，航班号为自动获取（效率优先），可处理错误时刻问题。
+        根据参数建立新航班，航班号为自动获取（效率优先），可处理错误时刻问题。\n
+        :param AirLineURL: 待排班的目标航机的排班URL页
         :param SrcAirport: 出发机场，可以是IATA代号
         :param DstAirport: 目的机场，可以是IATA代号
         :param Price: 价格系数，50 ~ 200
@@ -350,9 +351,293 @@ class NewFlightPlanningSystem:
         :param DepartureHour: 出发时间，小时，不填使用系统推荐时间
         :param DepartureMinute: 出发时间，分钟，不填使用系统推荐时间
         :param SimpleSpeedConfig: 简单速度设置，-1表示全减速，1表示全加速，0表示常速
+        :param LastResponse: 上次使用的响应体
         :return:
         """
-        pass
+        if not isinstance(LastResponse, Response):
+            LastResponse = self.retryGET(AirLineURL)
+        self.logonSession.headers['Referer'] = LastResponse.url
+        if not ((isinstance(Price, int) and 50 <= Price <= 200) or (
+                isinstance(Price, str) and Price.isdigit() and 50 <= int(Price) <= 200)):
+            self.basic_ReportError('价格系数不在50 ~ 200内，航线%s -> %s创建失败。' % (SrcAirport, DstAirport))
+            return
+        if Service in self.runtime_cache_service.keys():
+            Service = self.runtime_cache_service.get(Service)
+        else:
+            self.basic_ReportError('服务方案检查失败，航线%s -> %s创建失败。' % (SrcAirport, DstAirport))
+            return
+        if not (isinstance(DepartureHour, int) and isinstance(DepartureMinute, int)):
+            self.basic_ReportError('起飞时间必须是整数，航线%s -> %s创建失败。' % (SrcAirport, DstAirport))
+            return
+        if (isinstance(WeekPlan, list) or isinstance(WeekPlan, tuple)) and WeekPlan.count(True) + WeekPlan.count(
+                False) == 7 and WeekPlan.count(True) > 0:
+            WeekPlan = list(WeekPlan)
+        else:
+            self.basic_ReportError('周计划排班异常，航线%s -> %s创建失败。' % (SrcAirport, DstAirport))
+            return
+        if SrcAirport in self.runtime_cache_stations.keys():
+            SrcAirport = self.runtime_cache_stations.get(SrcAirport)
+        else:
+            tVar = self.GetAirportNameBySimpleName(SrcAirport)
+            if len(tVar) > 0 and tVar in self.runtime_cache_stations.keys():
+                SrcAirport = self.runtime_cache_stations.get(SrcAirport)
+            else:
+                self.basic_ReportError('出发机场 %s 未被检索到，航线创建失败。' % SrcAirport)
+                return
+        if DstAirport in self.runtime_cache_stations.keys():
+            DstAirport = self.runtime_cache_stations.get(DstAirport)
+        else:
+            tVar = self.GetAirportNameBySimpleName(DstAirport)
+            if len(tVar) > 0 and tVar in self.runtime_cache_stations.keys():
+                DstAirport = self.runtime_cache_stations.get(DstAirport)
+            else:
+                self.basic_ReportError('目的机场 %s 未被检索到，航线创建失败。' % DstAirport)
+                return
+        if isinstance(SrcTerminal, str) and len(SrcTerminal) == 0:
+            SrcTerminal = None
+        if isinstance(DstTerminal, str) and len(DstTerminal) == 0:
+            DstTerminal = None
+        # 初筛检查完成
+        first_post_url = 'IFormSubmitListener-tabs-panel-newFlight-flightNumber-newNumber-aircraft.newflight.number'
+
+        def parseHTML_getHiddenPara_first(root: bs4_Tag, dataDict: dict):
+            if root.name == 'form' and root.attrs.get('action', '').endswith(first_post_url):
+                dataDict.update(CommonHTMLParser(root, self.parseNode_GetHiddenPara))
+                # 连带判定起飞时间
+                if DepartureHour < 0 or DepartureMinute < 0:
+                    def parseNode_getSystemRecommendTime(unit: bs4_Tag, dataDict1: dict):
+                        if unit.name == 'select':
+                            if unit.attrs.get('name', '') == 'departure:hours':
+                                for option in unit.children:
+                                    if isinstance(option, bs4_Tag) and option.name == 'option' and \
+                                            'selected' in option.attrs.keys():
+                                        dataDict1['departure:hours'] = option.attrs.get('value')
+                                        return True
+                            elif unit.attrs.get('name', '') == 'departure:minutes':
+                                for option in unit.children:
+                                    if isinstance(option, bs4_Tag) and option.name == 'option' and \
+                                            'selected' in option.attrs.keys():
+                                        dataDict1['departure:minutes'] = option.attrs.get('value')
+                                        return True
+
+                    dataDict.update(CommonHTMLParser(root, parseNode_getSystemRecommendTime))
+                return True
+
+        first_post_data = CommonHTMLParser(GetClearHTML(LastResponse), parseHTML_getHiddenPara_first)
+        if DepartureHour > 0 and DepartureMinute > 0:
+            first_post_data['departure:hours'] = str(DepartureHour)
+            first_post_data['departure:minutes'] = str(DepartureMinute)
+        first_post_data.update({'origin': SrcAirport, 'destination': DstAirport, 'price': Price, 'service': Service})
+        """
+        以后可能的计划，增加中停地（需要在post_data里增加以下参数）
+        "via-container:via" - 中停地机场的ID编号
+        "via-container:viaDeparture:hours" - 从中停机场起飞的确切小时数（不是偏移量！）
+        "via-container:viaDeparture:minutes" - 从中停机场起飞的确切分钟
+        "via-container:viaPrice" - 从中停地到目的地机场之间航线的价格系数
+        "via-container:viaService" - 从中停地到目的地机场之间航线的服务方案
+        """
+        # 取得航班号
+        ajax_url = 'IBehaviorListener.0-tabs-panel-newFlight-flightNumber-newNumber-aircraft.newflight.number-number' \
+                   '-number_body-number~find~first'
+        http_ajax_headers = {'X-Requested-With': 'XMLHttpRequest', 'Wicket-Ajax': 'true',
+                             'Wicket-Ajax-BaseURL': LastResponse.url.split('/app/')[1],
+                             'Wicket-FocusedElementId':
+                                 LastResponse.text.split(ajax_url + '"')[1].split('"c":"')[1].split('"')[0]}
+        http_ajax_headers.update(self.logonSession.headers.copy())
+        ajax_url = self.getCurrentRandom(LastResponse) + ajax_url + '&_=%d' % self.getTimestamp()
+        newFlightPage = self.retryGET(ajax_url, headers=http_ajax_headers)
+
+        def parseHTML_getNewFlightNumber(root: bs4_Tag, dataDict: dict):
+            if root.name == 'input' and root.attrs.get('name', '') == 'number:number_body:input':
+                dataDict['number:number_body:input'] = root.attrs.get('value')
+                return True
+
+        first_post_data.update(CommonHTMLParser(
+            GetClearHTML(newFlightPage, lambda x: x.text.split(']]></component>')[0].split('<![CDATA[')[-1]),
+            parseHTML_getNewFlightNumber))
+        # 航班号取得
+        weekPlanInfoPage = self.retryPOST(self.getCurrentRandom(LastResponse) + first_post_url, data=first_post_data)
+        second_post_url = 'IFormSubmitListener-tabs-panel-newFlight-flightPlanning-flight.planning.form'
+        # 分析周计划排程及启动自动排程
+        if second_post_url not in weekPlanInfoPage.text:
+            weekPlanInfoPage = self.retryPOST(self.getCurrentRandom(weekPlanInfoPage) + first_post_url,
+                                              data=first_post_data)
+        self.logonSession.headers['Referer'] = weekPlanInfoPage.url
+        post_data = {'segmentsContainer:segments:0:speed-overrides:0:speedOverride': None,
+                     'segmentsContainer:segments:0:speed-overrides:1:speedOverride': None,
+                     'segmentsContainer:segments:0:speed-overrides:2:speedOverride': None,
+                     'segmentsContainer:segments:0:speed-overrides:3:speedOverride': None,
+                     'segmentsContainer:segments:0:speed-overrides:4:speedOverride': None,
+                     'segmentsContainer:segments:0:speed-overrides:5:speedOverride': None,
+                     'segmentsContainer:segments:0:speed-overrides:6:speedOverride': None,
+                     'segmentsContainer:segments:0:departure-offsets:0:departureOffset': 0,
+                     'segmentsContainer:segments:0:departure-offsets:1:departureOffset': 0,
+                     'segmentsContainer:segments:0:departure-offsets:2:departureOffset': 0,
+                     'segmentsContainer:segments:0:departure-offsets:3:departureOffset': 0,
+                     'segmentsContainer:segments:0:departure-offsets:4:departureOffset': 0,
+                     'segmentsContainer:segments:0:departure-offsets:5:departureOffset': 0,
+                     'segmentsContainer:segments:0:departure-offsets:6:departureOffset': 0,
+                     'segmentSettings:0:originTerminal': None,
+                     'segmentSettings:0:destinationTerminal': None,
+                     'segmentSettings:0:newDeparture:hours': int(first_post_data.get('departure:hours')),
+                     'segmentSettings:0:newDeparture:minutes': int(first_post_data.get('departure:minutes'))}
+        for day_id in range(len(WeekPlan)):
+            if WeekPlan[day_id]:
+                post_data['days:daySelection:%d:ticked' % day_id] = 'on'
+
+        def parseHTML_checkFlightSlots(root: bs4_Tag, dataList: list):
+            """检查起飞时间带和降落时间带是否可以起飞，输入参数最好为周计划排班参数"""
+            if root.name == 'a' and root.attrs.get('href', '').endswith('/slots'):
+                unit_id = 0
+                for td_unit in root.parent.parent.contents[1:]:
+                    if isinstance(td_unit, bs4_Tag) and 'bad' in td_unit.contents[0].attrs.get('class'):
+                        dataList[unit_id] = False
+                    unit_id += 1
+                return True
+
+        def parseHTML_getHiddenPara_Second(root: bs4_Tag, dataDict: dict):
+            """获取隐藏参数，检查并获取航站楼信息"""
+            if root.name == 'form' and root.attrs.get('action', '').endswith(second_post_url):
+                dataDict.update(CommonHTMLParser(root, self.parseNode_GetHiddenPara))
+            elif root.name == 'input' and root.attrs.get('name', '') == 'button-submit':
+                dataDict['button-submit'] = root.attrs.get('value')
+                return True
+            elif root.name == 'select':
+                if isinstance(SrcTerminal, str) and root.attrs.get('name', '') == 'segmentSettings:0:originTerminal':
+                    for option in root.children:
+                        if isinstance(option, bs4_Tag) and option.name == 'option' and \
+                                option.getText().startswith(SrcTerminal.upper()):
+                            dataDict['segmentSettings:0:originTerminal'] = option.attrs.get('value')
+                            return True
+                elif isinstance(DstTerminal, str) and \
+                        root.attrs.get('name', '') == 'segmentSettings:0:destinationTerminal':
+                    for option in root.children:
+                        if isinstance(option, bs4_Tag) and option.name == 'option' and \
+                                option.getText().startswith(DstTerminal.upper()):
+                            dataDict['segmentSettings:0:destinationTerminal'] = option.attrs.get('value')
+                            return True
+
+        post_data.update(CommonHTMLParser(GetClearHTML(weekPlanInfoPage), parseHTML_getHiddenPara_Second))
+        if SimpleSpeedConfig != 0:
+            # 先执行加减速再进行自动调程
+            http_ajax_headers = {'X-Requested-With': 'XMLHttpRequest', 'Wicket-Ajax': 'true',
+                                 'Wicket-Ajax-BaseURL': weekPlanInfoPage.url.split('/app/')[1]}
+            if SimpleSpeedConfig > 0:
+                ajax_url = 'IBehaviorListener.0-tabs-panel-newFlight-flightPlanning-flight.planning.' \
+                           'form-segmentsContainer-segments-0-speeds~set~max'
+            else:
+                ajax_url = 'IBehaviorListener.0-tabs-panel-newFlight-flightPlanning-flight.planning.' \
+                           'form-segmentsContainer-segments-0-speeds~set~min'
+            http_ajax_headers['Wicket-FocusedElementId'] = weekPlanInfoPage.text.split(ajax_url + '"')[1].split(
+                '"c":"')[1].split('"')[0]
+            http_ajax_headers.update(self.logonSession.headers.copy())
+            # 向服务器请求页面数据（服务端通过替换页面数据以实现速度数据覆盖）
+            checkResponse = self.retryGET(self.getCurrentRandom(weekPlanInfoPage) + ajax_url, headers=http_ajax_headers)
+
+            def parseHTML_getSpeedData(root: bs4_Tag, dataDict: dict):
+                """取得并覆盖速度数据"""
+                t0 = 'segmentsContainer:segments:0:speed-overrides:0:speedOverride'
+                if root.name == 'input' and root.attrs.get('name', '') == t0:
+                    speedValue = root.attrs.get('value')
+                    for index in range(7):
+                        dataDict['segmentsContainer:segments:0:speed-overrides:%d:speedOverride' % index] = speedValue
+                    return True
+
+            html_cR = GetClearHTML(checkResponse, self.xmlTablePreFilter)
+            post_data.update(CommonHTMLParser(html_cR, parseHTML_getSpeedData))
+            checkResult: list = CommonHTMLParser(html_cR, parseHTML_checkFlightSlots, WeekPlan)
+        else:
+            checkResult: list = CommonHTMLParser(GetClearHTML(weekPlanInfoPage), parseHTML_checkFlightSlots, WeekPlan)
+        # 准备进行自动调程
+        count_falseDay = WeekPlan.count(False)
+        count_trueDay = WeekPlan.count(True)
+        try_groups_times = 0
+        try_individual_error = False
+        http_ajax_headers = {'X-Requested-With': 'XMLHttpRequest', 'Wicket-Ajax': 'true',
+                             'Wicket-Ajax-BaseURL': weekPlanInfoPage.url.split('/app/')[1]}
+        http_ajax_headers.update(self.logonSession.headers.copy())
+        url_prefix = self.getCurrentRandom(weekPlanInfoPage)
+
+        def xorListByWeekPlan(toXor: list):
+            # 将不需要排班的False去除
+            toXor = toXor.copy()
+            for l_id in range(7):
+                if not WeekPlan[l_id]:
+                    toXor[l_id] = None
+            return toXor
+
+        while checkResult != WeekPlan and try_groups_times < 6:
+            """
+            自动调程思路：
+            1、如果检查结果与周计划排程完全相同，直接结束调程。
+            2、如果检查结果有一半及以上检查失败（时间带有问题），调整总体的出发时间（每次+5分钟）。
+            3、如果检查结果一半以下检查失败，调整那个个体的出发时间偏移。
+            4、排程尝试次数限制：最多6次，超过则报错并终止自动调程
+            """
+            if checkResult.count(False) - count_falseDay < count_trueDay / 2:
+                checkResult = xorListByWeekPlan(checkResult)
+                failID = checkResult.index(False)
+                target_offset: int = post_data.get(
+                    'segmentsContainer:segments:0:departure-offsets:%d:departureOffset' % failID)
+                if target_offset >= 30:
+                    # 过了6次了还没排程成功，终止并退出
+                    try_individual_error = True
+                    break
+                target_offset += 5
+                ajax_offset_url = 'IBehaviorListener.0-tabs-panel-newFlight-flightPlanning-flight.planning.' \
+                                  'form-segmentsContainer-segments-0-departure~offsets-%d-departureOffset' % failID
+                http_ajax_headers['Wicket-FocusedElementId'] = weekPlanInfoPage.text.split(
+                    ajax_offset_url + '"')[1].split('"c":"')[1].split('"')[0]
+                post_data['segmentsContainer:segments:0:departure-offsets:%d:departureOffset' % failID] = target_offset
+                ajax_post_data = {
+                    'segmentsContainer:segments:0:departure-offsets:%d:departureOffset' % failID: target_offset}
+                checkResponse = self.retryPOST(url_prefix + ajax_offset_url, headers=http_ajax_headers,
+                                               data=ajax_post_data)
+            else:
+                target_hour = int(post_data.get('segmentSettings:0:newDeparture:hours'))
+                target_minute = int(post_data.get('segmentSettings:0:newDeparture:minutes'))
+                if target_minute >= 55:
+                    if target_hour == 23:
+                        target_hour = 0
+                    else:
+                        target_hour += 1
+                    ajax_hour_url = 'IBehaviorListener.0-tabs-panel-newFlight-flightPlanning-flight.planning.' \
+                                    'form-segmentSettings-0-newDeparture-hours'
+                    http_ajax_headers['Wicket-FocusedElementId'] = weekPlanInfoPage.text.split(
+                        ajax_hour_url + '"')[1].split('"c":"')[1].split('"')[0]
+                    self.retryPOST(url_prefix + ajax_hour_url, {'segmentSettings:0:newDeparture:hours': target_hour},
+                                   headers=http_ajax_headers)  # 更新小时数，但此时的数据没有任何用处
+                target_minute = (target_minute + 5) % 60
+                try_groups_times += 1
+                # 提交数据并重写更新块
+                ajax_minute_url = 'IBehaviorListener.0-tabs-panel-newFlight-flightPlanning-flight.planning.' \
+                                  'form-segmentSettings-0-newDeparture-minutes'
+                http_ajax_headers['Wicket-FocusedElementId'] = weekPlanInfoPage.text.split(
+                    ajax_minute_url + '"')[1].split('"c":"')[1].split('"')[0]
+                post_data['segmentSettings:0:newDeparture:hours'] = target_hour
+                post_data['segmentSettings:0:newDeparture:minutes'] = target_minute
+                checkResponse = self.retryPOST(url_prefix + ajax_minute_url, headers=http_ajax_headers,
+                                               data={'segmentSettings:0:newDeparture:minutes': target_minute})
+            checkResult = CommonHTMLParser(GetClearHTML(checkResponse, self.xmlTablePreFilter),
+                                           parseHTML_checkFlightSlots, WeekPlan)
+        if try_groups_times >= 6 or try_individual_error:
+            self.basic_ReportError('自动调程失败，请人工处理航班时刻表问题。')
+        submitResponse = self.retryPOST(self.getCurrentRandom(weekPlanInfoPage) + second_post_url,
+                                        data=post_data)
+
+        def parseHTML_getMaintainRateData(root: bs4_Tag, dataDict: dict):
+            if root.name == 'th' and root.getText().strip() in Localization.get('maintenance_ratio'):
+                def parseNode_getMaintainRateData(node: bs4_Tag, dataDict1: dict):
+                    if node.name == 'span':
+                        dataDict1['maintenance_ratio'] = float(node.getText().strip().replace('%', '').replace(',', ''))
+                        return True
+
+                dataDict.update(CommonHTMLParser(root.parent, parseNode_getMaintainRateData))
+                return True
+
+        returnData = CommonHTMLParser(GetClearHTML(submitResponse), parseHTML_getMaintainRateData)
+        returnData['lastResponse'] = submitResponse
+        return returnData
 
     def ClearUnusableAirlineNumber(self):
         """清理掉不再被任意航机所使用的航班号码，从而为新的航班创建释放空间（自动排班需要建立新航班）"""
@@ -434,7 +719,7 @@ class NewFlightPlanningSystem:
         for newStation in NewStationNames:
             currentPageBS = GetClearHTML(stationPage)
             http_ajax_header = {}
-            http_ajax_header.update(self.LogonSession.headers.copy())
+            http_ajax_header.update(self.logonSession.headers.copy())
             http_ajax_header['Referer'] = stationPage.url
             http_ajax_header['X-Requested-With'] = 'XMLHttpRequest'
             http_ajax_header.update(CommonHTMLParser(currentPageBS, parseHTML_Get_Ajax_http_Header))
@@ -449,7 +734,7 @@ class NewFlightPlanningSystem:
                 # 没有就是无法识别航站名称
                 post_data.update(CommonHTMLParser(currentPageBS, parseHTML_GetHiddenPara))
                 post_http_header = {}
-                post_http_header.update(self.LogonSession.headers.copy())
+                post_http_header.update(self.logonSession.headers.copy())
                 post_http_header['Referer'] = stationPage.url
                 stationPage = self.retryPOST(self.getCurrentRandom(stationPage) + post_url_suffix,
                                              data=post_data, headers=post_http_header)
@@ -498,7 +783,7 @@ class NewFlightPlanningSystem:
         if isinstance(tSession, Session):
             theSession = tSession
         else:
-            theSession = self.LogonSession
+            theSession = self.logonSession
         for cookie in theSession.cookies.keys():
             if cookie.startswith('airlinesim-selectedEnterpriseId-'):
                 theSession.cookies.set(cookie, self.cache_info.get(SubCompanyName).get('ID'))
@@ -550,12 +835,17 @@ class NewFlightPlanningSystem:
         except:
             return ''
 
+    @staticmethod
+    def xmlTablePreFilter(html: Response):
+        """XML预处理函数（请勿直接调用）"""
+        return '<table>%s</table>' % html.text.split(']]></component>')[0].split('<![CDATA[')[-1]
+
     # 基础辅助函数区
     def retryGET(self, url: str, headers: dict = None, RetryTimes: int = 3, tSession: Session = None):
         if isinstance(tSession, Session):
             theSession = tSession
         else:
-            theSession = self.LogonSession
+            theSession = self.logonSession
         for RetryID in range(RetryTimes):
             try:
                 if isinstance(headers, dict) and len(headers) > 0:
@@ -573,7 +863,7 @@ class NewFlightPlanningSystem:
         if isinstance(tSession, Session):
             theSession = tSession
         else:
-            theSession = self.LogonSession
+            theSession = self.logonSession
         for RetryID in range(RetryTimes):
             try:
                 if isinstance(headers, dict) and len(headers) > 0:
