@@ -23,8 +23,7 @@ class NewFlightPlanningSystem:
     runtime_cache_stations = {}  # 运行时机场信息及其对应ID
 
     def __init__(self, LogonSession: Session, ServerName: str, UserName: str = '', Passwd: str = '',
-                 callback_ReportError=None, callback_ShowProgressText=None,
-                 callback_GetUserCare=None, callback_GetUserAnswer=None):
+                 callback_ReportError=None, callback_ShowProgressText=None):
         """
         航机排班系统（新版），功能更加精细
         :param UserName: 登陆服务器的用户名
@@ -53,18 +52,15 @@ class NewFlightPlanningSystem:
         self.function_ReportError = callback_ReportError  # 错误汇报
         self.function_ShowProgressText = callback_ShowProgressText  # 信息披露
 
-    def Close(self):
-        """请使用该函数注销AirlineSim会话"""
-        target_url = 'https://sar.simulogics.games/api/sessions/' + \
-                     self.logonSession.cookies.get('as-sid').split('_')[0]
-        self.logonSession.headers['Authorization'] = 'Bearer ' + self.logonSession.cookies.get('as-sid')
-        self.logonSession.delete(target_url, proxies=LocalProxier)
-        self.logonSession.close()
+    def __del__(self):
+        from LoginAirlineSim import LogoutAirlineSim
+        LogoutAirlineSim(self.logonSession)
 
     # 信息函数区
     def SearchInfoIntelligently(self, AutoSearchSubCompany: bool = False, ScanYellowFleet: bool = False,
                                 ScanRedFleet: bool = False):
         """智能搜集所需的一切信息，可指定是否一并搜索子公司"""
+        self.cache_info.clear()
         self.SearchAllSubCompany()
         if AutoSearchSubCompany:
             for sub_company in self.cache_info.keys():
@@ -566,6 +562,8 @@ class NewFlightPlanningSystem:
                     toXor[l_id] = None
             return toXor
 
+        if checkResult == WeekPlan:
+            self.basic_ShowProgress('时刻表检查通过，没有发现问题。')
         while checkResult != WeekPlan and try_groups_times < 6:
             """
             自动调程思路：
@@ -622,6 +620,8 @@ class NewFlightPlanningSystem:
                                            parseHTML_checkFlightSlots, WeekPlan)
         if try_groups_times >= 6 or try_individual_error:
             self.basic_ReportError('自动调程失败，请人工处理航班时刻表问题。')
+        else:
+            self.basic_ShowProgress('自动调程成功，时刻表冲突已解决。')
         submitResponse = self.retryPOST(self.getCurrentRandom(weekPlanInfoPage) + second_post_url,
                                         data=post_data)
 
@@ -753,7 +753,9 @@ class NewFlightPlanningSystem:
         :param AirplaneURL: 航机排班界面的URL
         :param LastResponse: 上次使用的响应包，通常是建立新航线后留下的
         """
-        if not (1 <= UserSelect <= 4 and isinstance(UserSelect, int)):
+        if UserSelect == 0:
+            return  # 适配特殊情况
+        if not (isinstance(UserSelect, int) and 1 <= UserSelect <= 4):
             raise ValueError('参数UserSelect必须是1~4之间的正整数！')
         if not isinstance(LastResponse, Response):
             LastResponse = self.retryGET(AirplaneURL)

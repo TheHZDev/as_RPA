@@ -1,12 +1,334 @@
-import openpyxl
-from openpyxl.workbook.workbook import Workbook, Worksheet
+from threading import Thread
 
+import openpyxl
+import wx
+from openpyxl.workbook.workbook import Workbook, Worksheet
+from requests import Session
+
+from GUI_LoginAS import LoginAirlineSimDialog
 from NewFlightPlanningSystem import NewFlightPlanningSystem
 from PublicCode import TranslateCHTtoCHS as Translate
-from PublicCode import openpyxl_ConfigAlignment
+from PublicCode import openpyxl_ConfigAlignment, Public_ConfigDB_Path
+
+
+class GUIAutoFlightPlanningBaseOnExcel(wx.Frame):
+    generatedSearchOption = None
+    nowSearchOption = [False] * 3
+    # Const定义块
+    const_GenerateFlightInfo = '检索排程系统'
+    const_OutputTemplate = '导出排程模板'
+    # 标志定义块
+    flag_SearchingInfo = False
+
+    def __init__(self, logonSession, serverName):
+        wx.Frame.__init__(self, None, id=wx.ID_ANY, title=u"基于Excel的自动排班管理器（AirlineSim专用）", pos=wx.DefaultPosition,
+                          size=wx.Size(516, 519),
+                          style=wx.CAPTION | wx.CLOSE_BOX | wx.MINIMIZE | wx.MINIMIZE_BOX | wx.TAB_TRAVERSAL)
+
+        self.SetSizeHints(wx.DefaultSize, wx.DefaultSize)
+        self.SetBackgroundColour(wx.Colour(207, 243, 216))
+
+        bSizer9 = wx.BoxSizer(wx.VERTICAL)
+
+        gSizer13 = wx.GridSizer(0, 2, 0, 0)
+
+        sbSizer6 = wx.StaticBoxSizer(wx.StaticBox(self, wx.ID_ANY, u"操作选单"), wx.VERTICAL)
+
+        self.GenerateExcelTemplateButton = wx.Button(sbSizer6.GetStaticBox(), wx.ID_ANY, self.const_GenerateFlightInfo,
+                                                     wx.DefaultPosition, wx.DefaultSize, 0)
+        self.GenerateExcelTemplateButton.SetFont(
+            wx.Font(15, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL, False, wx.EmptyString))
+        self.GenerateExcelTemplateButton.SetToolTip(u"检索信息或导出表格模板。")
+
+        sbSizer6.Add(self.GenerateExcelTemplateButton, 0, wx.ALL | wx.EXPAND, 5)
+
+        self.m_staticText281 = wx.StaticText(sbSizer6.GetStaticBox(), wx.ID_ANY, wx.EmptyString, wx.DefaultPosition,
+                                             wx.Size(-1, 3), 0)
+        self.m_staticText281.Wrap(-1)
+
+        sbSizer6.Add(self.m_staticText281, 0, wx.ALL, 5)
+
+        self.InputFlightPlanExcelButton = wx.Button(sbSizer6.GetStaticBox(), wx.ID_ANY, u"导入排程文档", wx.DefaultPosition,
+                                                    wx.DefaultSize, 0)
+        self.InputFlightPlanExcelButton.SetFont(
+            wx.Font(15, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL, False, wx.EmptyString))
+        self.InputFlightPlanExcelButton.Enable(False)
+        self.InputFlightPlanExcelButton.SetToolTip(u"导入已填写的表格模板（会自动无视无效航机）。")
+
+        sbSizer6.Add(self.InputFlightPlanExcelButton, 0, wx.ALL | wx.EXPAND, 5)
+
+        self.m_staticText28 = wx.StaticText(sbSizer6.GetStaticBox(), wx.ID_ANY, wx.EmptyString, wx.DefaultPosition,
+                                            wx.Size(-1, 3), 0)
+        self.m_staticText28.Wrap(-1)
+
+        sbSizer6.Add(self.m_staticText28, 0, wx.ALL, 5)
+
+        self.ExecuteInputtedFlightButton = wx.Button(sbSizer6.GetStaticBox(), wx.ID_ANY, u"执行已导入排程", wx.DefaultPosition,
+                                                     wx.DefaultSize, 0)
+        self.ExecuteInputtedFlightButton.SetFont(
+            wx.Font(14, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL, False, wx.EmptyString))
+        self.ExecuteInputtedFlightButton.Enable(False)
+        self.ExecuteInputtedFlightButton.SetToolTip(u"执行已经导入成功的排程。")
+
+        sbSizer6.Add(self.ExecuteInputtedFlightButton, 0, wx.ALL | wx.EXPAND, 5)
+
+        self.m_staticText282 = wx.StaticText(sbSizer6.GetStaticBox(), wx.ID_ANY, wx.EmptyString, wx.DefaultPosition,
+                                             wx.Size(-1, 3), 0)
+        self.m_staticText282.Wrap(-1)
+
+        sbSizer6.Add(self.m_staticText282, 0, wx.ALL, 5)
+
+        self.ExitButton = wx.Button(sbSizer6.GetStaticBox(), wx.ID_ANY, u"退出", wx.DefaultPosition, wx.DefaultSize, 0)
+        self.ExitButton.SetFont(
+            wx.Font(15, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL, False, wx.EmptyString))
+        self.ExitButton.SetToolTip(u"退出。")
+
+        sbSizer6.Add(self.ExitButton, 0, wx.ALL | wx.EXPAND, 5)
+
+        gSizer13.Add(sbSizer6, 1, wx.EXPAND, 5)
+
+        sbSizer8 = wx.StaticBoxSizer(wx.StaticBox(self, wx.ID_ANY, u"系统选项"), wx.VERTICAL)
+
+        self.IsSearchSubCompany = wx.CheckBox(sbSizer8.GetStaticBox(), wx.ID_ANY, u"检索所有子公司", wx.DefaultPosition,
+                                              wx.DefaultSize, 0)
+        self.IsSearchSubCompany.SetToolTip(u"选中后，检索阶段将搜索全部公司的待排班航班。")
+
+        sbSizer8.Add(self.IsSearchSubCompany, 0, wx.ALL, 5)
+
+        self.IsSearchYellowFlight = wx.CheckBox(sbSizer8.GetStaticBox(), wx.ID_ANY, u"检索黄色（未执行）排程", wx.DefaultPosition,
+                                                wx.DefaultSize, 0)
+        sbSizer8.Add(self.IsSearchYellowFlight, 0, wx.ALL, 5)
+
+        self.IsSearchRedFlight = wx.CheckBox(sbSizer8.GetStaticBox(), wx.ID_ANY, u"检索红色（出现错误）排程", wx.DefaultPosition,
+                                             wx.DefaultSize, 0)
+        sbSizer8.Add(self.IsSearchRedFlight, 0, wx.ALL, 5)
+
+        self.IsAutoSetUpNewStations = wx.CheckBox(sbSizer8.GetStaticBox(), wx.ID_ANY, u"自动开设新航站", wx.DefaultPosition,
+                                                  wx.DefaultSize, 0)
+        self.IsAutoSetUpNewStations.SetToolTip(u"是否自动开设原先并未开设航站的机场和航站。")
+
+        sbSizer8.Add(self.IsAutoSetUpNewStations, 0, wx.ALL, 5)
+
+        self.IsAutoCleanUselessAirlineCode = wx.CheckBox(sbSizer8.GetStaticBox(), wx.ID_ANY, u"自动清理多余无用航班号码",
+                                                         wx.DefaultPosition, wx.DefaultSize, 0)
+        self.IsAutoCleanUselessAirlineCode.SetToolTip(u"是否自动清理无用航班号码。")
+
+        sbSizer8.Add(self.IsAutoCleanUselessAirlineCode, 0, wx.ALL, 5)
+
+        gSizer14 = wx.GridSizer(0, 3, 0, 0)
+
+        self.IsStopFlightPlanAfterLowMaintenanceRadio = wx.CheckBox(sbSizer8.GetStaticBox(), wx.ID_ANY,
+                                                                    u"当维护比低于\n时停止排班", wx.DefaultPosition,
+                                                                    wx.DefaultSize, 0)
+        self.IsStopFlightPlanAfterLowMaintenanceRadio.SetToolTip(u"当维护比较低，停止排程。")
+
+        gSizer14.Add(self.IsStopFlightPlanAfterLowMaintenanceRadio, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 5)
+
+        self.InputMinMaintenanceRadio = wx.TextCtrl(sbSizer8.GetStaticBox(), wx.ID_ANY, u"100", wx.DefaultPosition,
+                                                    wx.Size(40, -1), wx.TE_CENTER)
+        self.InputMinMaintenanceRadio.Disable()
+        gSizer14.Add(self.InputMinMaintenanceRadio, 0, wx.ALL | wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL, 5)
+
+        self.m_staticText26 = wx.StaticText(sbSizer8.GetStaticBox(), wx.ID_ANY, u"%", wx.DefaultPosition,
+                                            wx.DefaultSize, 0)
+        self.m_staticText26.Wrap(-1)
+
+        gSizer14.Add(self.m_staticText26, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 5)
+
+        sbSizer8.Add(gSizer14, 1, wx.EXPAND, 5)
+
+        gSizer15 = wx.GridSizer(0, 2, 0, 0)
+
+        self.m_staticText27 = wx.StaticText(sbSizer8.GetStaticBox(), wx.ID_ANY, u"航机排班后默认操作", wx.DefaultPosition,
+                                            wx.DefaultSize, 0)
+        self.m_staticText27.Wrap(-1)
+
+        gSizer15.Add(self.m_staticText27, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL | wx.ALIGN_CENTER_HORIZONTAL, 5)
+
+        DefaultCommitAfterFlightPlanChoiceChoices = [u"无操作", u"立即执行", u"延后三天", u"锁定航班"]
+        self.DefaultCommitAfterFlightPlanChoice = wx.Choice(sbSizer8.GetStaticBox(), wx.ID_ANY, wx.DefaultPosition,
+                                                            wx.DefaultSize, DefaultCommitAfterFlightPlanChoiceChoices,
+                                                            0)
+        self.DefaultCommitAfterFlightPlanChoice.SetSelection(0)
+        gSizer15.Add(self.DefaultCommitAfterFlightPlanChoice, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 5)
+
+        sbSizer8.Add(gSizer15, 1, wx.EXPAND, 5)
+
+        gSizer13.Add(sbSizer8, 1, wx.EXPAND, 5)
+
+        bSizer9.Add(gSizer13, 1, wx.EXPAND, 5)
+
+        sbSizer9 = wx.StaticBoxSizer(wx.StaticBox(self, wx.ID_ANY, u"日志输出"), wx.VERTICAL)
+
+        self.UILogOutputText = wx.TextCtrl(sbSizer9.GetStaticBox(), wx.ID_ANY, wx.EmptyString, wx.DefaultPosition,
+                                           wx.Size(-1, 195), wx.TE_CHARWRAP | wx.TE_MULTILINE | wx.TE_READONLY)
+        sbSizer9.Add(self.UILogOutputText, 0, wx.EXPAND, 5)
+
+        bSizer9.Add(sbSizer9, 1, wx.EXPAND, 5)
+
+        self.SetSizer(bSizer9)
+        self.Layout()
+        self.m_statusBar2 = self.CreateStatusBar(1, wx.STB_SIZEGRIP, wx.ID_ANY)
+
+        self.Centre(wx.BOTH)
+        self.SetStatusBar(self.m_statusBar2)
+
+        # Connect Events
+        self.GenerateExcelTemplateButton.Bind(wx.EVT_BUTTON, self.GenerateExcelTemplateButtonOnButtonClick)
+        self.InputFlightPlanExcelButton.Bind(wx.EVT_BUTTON, self.InputFlightPlanExcelButtonOnButtonClick)
+        self.ExecuteInputtedFlightButton.Bind(wx.EVT_BUTTON, self.ExecuteInputtedFlightButtonOnButtonClick)
+        self.ExitButton.Bind(wx.EVT_BUTTON, self.ExitButtonOnButtonClick)
+        self.IsSearchSubCompany.Bind(wx.EVT_CHECKBOX, self.IsSearchSubCompanyOnCheckBox)
+        self.IsSearchYellowFlight.Bind(wx.EVT_CHECKBOX, self.IsSearchYellowFlightOnCheckBox)
+        self.IsSearchRedFlight.Bind(wx.EVT_CHECKBOX, self.IsSearchRedFlightOnCheckBox)
+        self.IsStopFlightPlanAfterLowMaintenanceRadio.Bind(wx.EVT_CHECKBOX,
+                                                           self.IsStopFlightPlanAfterLowMaintenanceRadioOnCheckBox)
+        self.InputMinMaintenanceRadio.Bind(wx.EVT_KILL_FOCUS, self.InputMinMaintenanceRadioOnKillFocus)
+
+        # Init
+        self.flightPlanningSystem = FlightPlanningSystemBaseOnExcel(logonSession, serverName, self.callback_LogOutput,
+                                                                    self.SetStatusText)
+
+    def __del__(self):
+        pass
+
+    def GenerateExcelTemplateButtonOnButtonClick(self, event):
+        if self.GenerateExcelTemplateButton.GetLabel() == self.const_OutputTemplate:
+            from datetime import datetime
+            filename = datetime.now().strftime('%Y%m%d') + '.xlsx'
+            outputFileDialog = wx.FileDialog(self, '导出模板文件', defaultFile=filename, wildcard='Excel 文档|*.xlsx',
+                                             style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT)
+            outputFileDialog.ShowModal()
+            savePath: str = outputFileDialog.GetPath()
+            outputFileDialog.Destroy()
+            if savePath is None or not savePath.endswith('.xlsx'):
+                wx.MessageDialog(self, '没有文件被导出。', '信息', wx.ICON_INFORMATION | wx.OK).ShowModal()
+                return
+            self.flightPlanningSystem.GenerateExcelTemplateAndOutput(savePath)
+            wx.MessageDialog(self, '导出成功。', '信息', wx.ICON_INFORMATION | wx.OK).ShowModal()
+        elif self.GenerateExcelTemplateButton.GetLabel() == self.const_GenerateFlightInfo:
+            self.SetStatusText('正在检索航班信息，请稍等。。。')
+            # 状态快照处理
+            self.generatedSearchOption = self.nowSearchOption.copy()
+            self.GenerateExcelTemplateButton.Disable()
+            self.IsSearchSubCompany.Disable()
+            self.IsSearchRedFlight.Disable()
+            self.IsSearchYellowFlight.Disable()
+            self.InputFlightPlanExcelButton.Disable()
+            self.ExecuteInputtedFlightButton.Disable()
+            Thread(target=self.thread_CollectAirlineInfo).start()
+
+    def InputFlightPlanExcelButtonOnButtonClick(self, event):
+        inputFileDialog = wx.FileDialog(self, '导入排程文件', wildcard='Excel 文档|*.xlsx',
+                                        style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST)
+        inputFileDialog.ShowModal()
+        try:
+            tWorkbook = openpyxl.open(inputFileDialog.GetPath(), read_only=True)
+            self.flightPlanningSystem.readExcelAndBuildConfig(tWorkbook)
+            wx.MessageDialog(self, '排程信息导入成功！', '导入完成', wx.ICON_INFORMATION | wx.OK).ShowModal()
+            self.ExecuteInputtedFlightButton.Enable()
+        except:
+            wx.MessageDialog(self, '打开Excel文档出错！', '错误！', wx.ICON_ERROR | wx.OK).ShowModal()
+        finally:
+            inputFileDialog.Destroy()
+
+    def ExecuteInputtedFlightButtonOnButtonClick(self, event):
+        if wx.MessageDialog(self, '是否立刻启动自动排程？', '最后确认', wx.YES_NO | wx.ICON_QUESTION).ShowModal() == wx.ID_YES:
+            self.GenerateExcelTemplateButton.Disable()
+            self.InputFlightPlanExcelButton.Disable()
+            self.ExecuteInputtedFlightButton.Disable()
+            self.IsSearchYellowFlight.Disable()
+            self.IsSearchSubCompany.Disable()
+            self.IsSearchRedFlight.Disable()
+            self.IsStopFlightPlanAfterLowMaintenanceRadio.Disable()
+            self.IsAutoSetUpNewStations.Disable()
+            self.IsAutoCleanUselessAirlineCode.Disable()
+            self.InputMinMaintenanceRadio.Disable()
+            self.DefaultCommitAfterFlightPlanChoice.Disable()
+            Thread(target=self.flightPlanningSystem.Thread_FlightManager,
+                   args=(self.IsAutoCleanUselessAirlineCode.GetValue(), self.IsAutoSetUpNewStations.GetValue(),
+                         float(self.InputMinMaintenanceRadio.GetValue()),
+                         self.DefaultCommitAfterFlightPlanChoice.GetSelection())).start()
+            wx.MessageDialog(self, '航机自动排程已经启动，请在日志窗口查看详细日志。', '提示').Show()
+        event.Skip()
+
+    def ExitButtonOnButtonClick(self, event):
+        self.flightPlanningSystem.PrepareExit()
+        self.Hide()
+        self.Close(True)
+        event.Skip()
+
+    def IsSearchSubCompanyOnCheckBox(self, event):
+        self.nowSearchOption[0] = self.IsSearchSubCompany.GetValue()
+        self.checkGenerateButton()
+        event.Skip()
+
+    def IsSearchYellowFlightOnCheckBox(self, event):
+        self.nowSearchOption[1] = self.IsSearchYellowFlight.GetValue()
+        self.checkGenerateButton()
+        event.Skip()
+
+    def IsSearchRedFlightOnCheckBox(self, event):
+        self.nowSearchOption[2] = self.IsSearchRedFlight.GetValue()
+        self.checkGenerateButton()
+        event.Skip()
+
+    def IsStopFlightPlanAfterLowMaintenanceRadioOnCheckBox(self, event):
+        if self.IsStopFlightPlanAfterLowMaintenanceRadio.GetValue():
+            self.InputMinMaintenanceRadio.Enable()
+        else:
+            self.InputMinMaintenanceRadio.Disable()
+
+    def InputMinMaintenanceRadioOnKillFocus(self, event):
+        tStr: str = self.InputMinMaintenanceRadio.GetValue()
+        if not (tStr.isdigit() or (tStr.count('.') == 1 and tStr.replace('.', '').isdigit())):
+            self.InputMinMaintenanceRadio.SetValue('100')
+        event.Skip()
+
+    # 回调函数区
+    def callback_LogOutput(self, logStr: str):
+        from datetime import datetime
+        self.UILogOutputText.AppendText(datetime.now().strftime('%H:%M:%S : ') + logStr + '\n')
+
+    # 规程定义区
+    def checkGenerateButton(self):
+        if isinstance(self.generatedSearchOption, list):
+            if self.nowSearchOption == self.generatedSearchOption:
+                self.GenerateExcelTemplateButton.SetLabel(self.const_OutputTemplate)
+            else:
+                self.GenerateExcelTemplateButton.SetLabel(self.const_GenerateFlightInfo)
+
+    def thread_CollectAirlineInfo(self):
+        try:
+            self.flightPlanningSystem.SearchInfoIntelligently(self.generatedSearchOption[0],
+                                                              self.generatedSearchOption[1],
+                                                              self.generatedSearchOption[2])
+        finally:
+            if len(self.flightPlanningSystem.cache_info) > 0:
+                self.GenerateExcelTemplateButton.SetLabel(self.const_OutputTemplate)
+                self.InputFlightPlanExcelButton.Enable()
+                if len(self.flightPlanningSystem.inputtedFlightPlanData) > 0:
+                    self.ExecuteInputtedFlightButton.Enable()
+            self.GenerateExcelTemplateButton.Enable()
+            self.IsSearchSubCompany.Enable()
+            self.IsSearchRedFlight.Enable()
+            self.IsSearchYellowFlight.Enable()
 
 
 class FlightPlanningSystemBaseOnExcel(NewFlightPlanningSystem):
+    inputtedFlightPlanData = {}
+
+    flag_ExitProgram = False
+
+    def __init__(self, LogonSession: Session, ServerName: str, callback_LogOutput, callback_ShowInstantMsg):
+
+        super().__init__(LogonSession, ServerName, callback_ReportError=callback_LogOutput,
+                         callback_ShowProgressText=callback_LogOutput)
+
+        self.function_ShowInstantMsg = callback_ShowInstantMsg
+
+    def PrepareExit(self):
+        self.flag_ExitProgram = True
 
     def GenerateExcelTemplateAndOutput(self, SavePath: str):
         """
@@ -281,7 +603,7 @@ class FlightPlanningSystemBaseOnExcel(NewFlightPlanningSystem):
                                 weekDay = [False] * 7
                                 for day in list(week_value):
                                     if day in list('1234567'):
-                                        weekDay[list('1234567').index(day)] = True
+                                        weekDay['1234567'.index(day)] = True
                                 airline_dict['Week'] = weekDay
                             except:
                                 self.advance_ReportExcelError(registerID, ('H', rowIndex),
@@ -291,11 +613,25 @@ class FlightPlanningSystemBaseOnExcel(NewFlightPlanningSystem):
                         # ALL OK
                         airlineOrder.append(airline_dict)
                     if len(airlineOrder) > 0:
-                        cache_sheetsName[registerID] = airlineOrder
+                        cache_airlinesInfo[registerID] = airlineOrder
             if len(cache_airlinesInfo) > 0:
                 result[airCompany] = cache_airlinesInfo
         cache_readonly_AirCompanyInfo.clear()
+        self.inputtedFlightPlanData.clear()
+        self.inputtedFlightPlanData.update(result)
         return result
+
+    def Thread_FlightManager(self, AutoCleanUselessAirlineCode: bool = False, AutoSetUpNewStations: bool = False,
+                             MinMaintenanceRadio: float = None, DefaultCommit: int = -1):
+        """
+        航班排程管理线程（防止卡住UI运转）\n
+        :param AutoCleanUselessAirlineCode: 是否自动清理无用航班号码
+        :param AutoSetUpNewStations: 是否自动开设新航站
+        :param MinMaintenanceRadio: 最低维护比例
+        :param DefaultCommit: 默认执行的操作
+        """
+        if AutoCleanUselessAirlineCode:
+            self.ClearUnusableAirlineNumber()
 
     def advance_ReportExcelError(self, worksheetName: str, unitName: tuple, errorMsg: str):
         """
@@ -309,3 +645,16 @@ class FlightPlanningSystemBaseOnExcel(NewFlightPlanningSystem):
             self.basic_ReportError(errorText)
         except:
             pass
+
+
+def callback_afterLogonInit(logonSession, serverName):
+    """对话框后，才初始化主窗口"""
+    global mainWin
+    mainWin = GUIAutoFlightPlanningBaseOnExcel(logonSession, serverName)
+
+
+if __name__ == '__main__':
+    mainAPP = wx.App()
+    mainWin = None
+    LoginAirlineSimDialog(None, Public_ConfigDB_Path, callback_afterLogonInit).ShowModal()
+    mainAPP.MainLoop()

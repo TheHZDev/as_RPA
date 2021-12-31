@@ -4,6 +4,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 from requests import Response
 
 Localization = {'maintenance_ratio': ('Maintenance ratio', '維護比例')}
+Public_ConfigDB_Path = 'config.sqlite'
 
 
 def GetClearHTML(HTML: Response, PreFilter=None):

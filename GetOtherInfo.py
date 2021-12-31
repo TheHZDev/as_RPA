@@ -385,11 +385,8 @@ class CalcAirplaneProperty:
                 t_sql.commit()
                 self.callback_outputLog('已完成对航机 %s 家族的爬取。' % line)
             t_sql.close()
-            target_url = 'https://sar.simulogics.games/api/sessions/' + \
-                         logonSession.cookies.get('as-sid').split('_')[0]
-            logonSession.headers['Authorization'] = 'Bearer ' + logonSession.cookies.get('as-sid')
-            logonSession.delete(target_url)  # 自动注销会话
-            logonSession.close()
+            from LoginAirlineSim import LogoutAirlineSim
+            LogoutAirlineSim(logonSession)
         self.flag_price_ok = True
 
     @staticmethod

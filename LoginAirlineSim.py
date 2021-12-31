@@ -4,7 +4,7 @@ from urllib.parse import quote
 
 from requests import Session
 
-__all__ = ['ServerMap', 'LoginAirlineSim', 'getBaseURL']
+__all__ = ['ServerMap', 'LoginAirlineSim', 'getBaseURL', 'LogoutAirlineSim']
 
 ServerMap = {'Yeager': 'https://yeager.airlinesim.aero/action/portal/index',
              'Junkers': 'https://junkers.airlinesim.aero/action/portal/index',
@@ -84,6 +84,15 @@ def LoginAirlineSim(ServerName: str, UserName: str, Passwd: str) -> Session:
         raise Exception('认证失败，同时存在的会话太多，可能存在封号现象。')
     else:
         raise Exception('用户名或密码错误，请重试。HTTP（%d）状态码异常。' % login_result.status_code)
+
+
+def LogoutAirlineSim(LogonSession: Session):
+    """注销AS会话"""
+    target_url = 'https://sar.simulogics.games/api/sessions/' + \
+                 LogonSession.cookies.get('as-sid').split('_')[0]
+    LogonSession.headers['Authorization'] = 'Bearer ' + LogonSession.cookies.get('as-sid')
+    LogonSession.delete(target_url)  # 自动注销会话
+    LogonSession.close()
 
 
 def getBaseURL(ServerName: str) -> str:
