@@ -8,6 +8,8 @@ import requests
 from bs4 import BeautifulSoup
 from bs4.element import Tag as bs4_Tag
 
+from PublicCode import CommonHTMLParser, GetClearHTML
+
 max_thread_workers = 5
 basic_header = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:93.0) Gecko/20100101 Firefox/93.0'}
 LocalProxier = {'http': '', 'https': ''}
@@ -64,14 +66,6 @@ def retry_request_Session(session: requests.Session, url: str, timeout: int = 60
             print('连接出错，将在 %d 秒后再次重试。' % retry_cooldown)
             sleep(retry_cooldown)
     return requests.Response()
-
-
-def DeleteALLChar(html_str: str) -> str:
-    # 这仅仅是使得解析器解析时不会再碰到多余的空格
-    html_str = html_str.replace('\t', '').replace('\r', '').replace('\n', '')  # 去除常见的大空格和换行
-    while '  ' in html_str:  # 双空格合并为一个空格
-        html_str = html_str.replace('  ', ' ')
-    return html_str.replace('> <', '><')  # 去除标签之间的空格
 
 
 class ConfigManager:
@@ -227,7 +221,7 @@ class CalcAirplaneProperty:
                 if isinstance(t_unit, bs4_Tag):
                     Recursion_GetAllCountryID(t_unit)
 
-        for unit in BeautifulSoup(DeleteALLChar(retry_request(first_url).text), 'html5lib'):
+        for unit in GetClearHTML(retry_request(first_url)).children:
             if len(self.cache_CountryIndex) > 0:
                 break
             if isinstance(unit, bs4_Tag):
@@ -286,7 +280,7 @@ class CalcAirplaneProperty:
                 if isinstance(t_unit, bs4_Tag):
                     Recursion_GetAirplaneInfo(t_unit)
 
-        for unit in BeautifulSoup(DeleteALLChar(retry_request(target_url).text), 'html5lib'):
+        for unit in GetClearHTML(retry_request(target_url)).children:
             if isinstance(unit, bs4_Tag):
                 Recursion_GetAirplaneInfo(unit)
         self.callback_outputLog('对国家 %s 的信息抓取完成。' % result_text[0])
@@ -319,7 +313,7 @@ class CalcAirplaneProperty:
                 if isinstance(t_unit, bs4_Tag):
                     Recursion_GetAirCompanyInfo(t_unit)
 
-        for unit in BeautifulSoup(DeleteALLChar(retry_request(target_url).text), 'html5lib'):
+        for unit in GetClearHTML(retry_request(target_url)).children:
             if isinstance(unit, bs4_Tag):
                 Recursion_GetAirCompanyInfo(unit)
         self.callback_outputLog('对公司 %s 的信息抓取完成。' % result_text[0])
@@ -347,7 +341,7 @@ class CalcAirplaneProperty:
                     if isinstance(t_unit, bs4_Tag):
                         Recursion_GetAllAirplaneFamilyInfo(t_unit)
 
-            for unit in BeautifulSoup(DeleteALLChar(logonSession.get(first_url).text), 'html5lib'):
+            for unit in GetClearHTML(logonSession.get(first_url)).children:
                 if isinstance(unit, bs4_Tag):
                     Recursion_GetAllAirplaneFamilyInfo(unit)
             # 抓取了所有航班家族的数据
@@ -378,8 +372,7 @@ class CalcAirplaneProperty:
                         Recursion_GetSingleFamilyAirplaneInfo(t_unit)
 
             for line in second_url_list.keys():
-                for unit in BeautifulSoup(DeleteALLChar(logonSession.get(second_url_list.get(line)).text),
-                                          'html5lib'):
+                for unit in GetClearHTML(logonSession.get(second_url_list.get(line))).children:
                     if isinstance(unit, bs4_Tag):
                         Recursion_GetSingleFamilyAirplaneInfo(unit)
                 t_sql.commit()
@@ -677,60 +670,57 @@ class GetAirportInfo:
                   "Nighttime_ban": 0, "Noise_restrictions": 0, "Passengers": 0, "Cargo": 0, "AirportName": '',
                   "Region": ''}
 
-        def Recursion_ParseAirportInfo(root: bs4_Tag):
+        def Recursion_ParseAirportInfo(root: bs4_Tag, dataDict: dict):
             if root.name == 'td':
                 if root.getText() in ('時區', 'Time zone'):
                     try:
-                        t_dict['Time_Zone'] = int(root.parent.contents[1].getText().replace('+', '').replace('UTC', ''). \
-                                                  replace(' ', '').split(':')[0])
+                        dataDict['Time_Zone'] = int(
+                            root.parent.contents[1].getText().replace('+', '').replace('UTC', ''). \
+                                replace(' ', '').split(':')[0])
                     except:  # 可能遇到了格林尼治时期（UTC时间）
                         pass
                 elif root.getText() in ('IATA 代號', 'IATA code'):
-                    t_dict['IATA_Code'] = root.parent.contents[1].getText()
+                    dataDict['IATA_Code'] = root.parent.contents[1].getText()
                 elif root.getText() in ('ICAO 代號', 'ICAO code'):
-                    t_dict['ICAO_Code'] = root.parent.contents[1].getText()
+                    dataDict['ICAO_Code'] = root.parent.contents[1].getText()
                 elif root.getText() in ('區域', 'Region'):
-                    t_dict['Region'] = root.parent.contents[1].contents[0].getText()
+                    dataDict['Region'] = root.parent.contents[1].contents[0].getText()
                 elif root.getText() in ('國家', 'Country'):
-                    t_dict["Country"] = root.parent.contents[1].contents[0].getText()
+                    dataDict["Country"] = root.parent.contents[1].contents[0].getText()
                 elif root.getText() in ('洲別', 'Continent'):
-                    t_dict["Continent"] = root.parent.contents[1].getText()
+                    dataDict["Continent"] = root.parent.contents[1].getText()
                 elif root.getText() in ('跑道', 'Runway'):
-                    t_dict["Runway"] = int(root.parent.contents[1].getText().replace(',', '').replace('m', '').strip())
+                    dataDict["Runway"] = int(
+                        root.parent.contents[1].getText().replace(',', '').replace('m', '').strip())
                 elif root.getText() in ('機場大小', 'Airport size'):
-                    t_dict["Airport_Size"] = root.parent.contents[1].getText()
+                    dataDict["Airport_Size"] = root.parent.contents[1].getText()
                 # elif root.getText() in ('時間帶數 (每五分鐘)', 'Slots (per 5 minutes)'):
                 elif 'Slots (per 5 minutes)' in root.getText() or '時間帶數 (每五分鐘)' in root.getText():
-                    t_dict["Slots_per_five_minutes"] = int(root.parent.contents[1].getText())
+                    dataDict["Slots_per_five_minutes"] = int(root.parent.contents[1].getText())
                 elif root.getText() in ('可用時間帶', 'Slot Availability'):
-                    t_dict["Slot_Availability"] = int(root.parent.contents[1].getText().replace('%', '')) / 100
+                    dataDict["Slot_Availability"] = int(root.parent.contents[1].getText().replace('%', '')) / 100
                 elif root.getText() in ('最短轉機時間', 'Min. transfer time'):
                     t1 = root.parent.contents[1].contents[0].getText()
                     if 'transfer impossible' not in t1 or '不可轉機' not in t1:
                         t1: str = root.parent.contents[1].contents[0].getText()
-                        t_dict["Min_transfer_time"] = int(t1.split(':')[0]) * 60 + int(t1.split(':')[1])
+                        dataDict["Min_transfer_time"] = int(t1.split(':')[0]) * 60 + int(t1.split(':')[1])
                 elif root.getText() in ('宵禁', 'Nighttime ban'):
                     if root.parent.contents[1].getText() not in ('無宵禁', 'no nighttime ban'):
-                        t_dict["Nighttime_ban"] = 1
+                        dataDict["Nighttime_ban"] = 1
                 elif root.getText() in ('噪音管制', 'Noise restrictions'):
                     if root.parent.contents[1].getText() not in ('無噪音管制', 'no noise restrictions'):
-                        t_dict["Noise_restrictions"] = 1
+                        dataDict["Noise_restrictions"] = 1
                 elif root.getText() in ('旅客', 'Passengers'):
-                    t_dict["Passengers"] = int(root.parent.contents[1].contents[0].attrs.get('title'). \
-                                               replace('demand:', '').strip())
+                    dataDict["Passengers"] = int(root.parent.contents[1].contents[0].attrs.get('title'). \
+                                                 replace('demand:', '').strip())
                 elif root.getText() in ('貨物', 'Cargo'):
-                    t_dict["Cargo"] = int(root.parent.contents[1].contents[0].attrs.get('title'). \
-                                          replace('demand:', '').strip())
+                    dataDict["Cargo"] = int(root.parent.contents[1].contents[0].attrs.get('title'). \
+                                            replace('demand:', '').strip())
             elif root.name == 'h1' and ('Airport:' in root.getText() or '機場: ' in root.getText()):
-                t_dict["AirportName"] = root.getText().split(':')[1].split('(')[0].strip()
+                dataDict["AirportName"] = root.getText().split(':')[1].split('(')[0].strip()
                 return
-            for t_unit in root.children:
-                if isinstance(t_unit, bs4_Tag):
-                    Recursion_ParseAirportInfo(t_unit)
 
-        for unit in BeautifulSoup(DeleteALLChar(t_response.text), 'html5lib').children:
-            if isinstance(unit, bs4_Tag):
-                Recursion_ParseAirportInfo(unit)
+        t_dict.update(CommonHTMLParser(GetClearHTML(t_response), Recursion_ParseAirportInfo))
         t_sql = sqlite3.connect(self.DBPath)
         t_sql.execute(insert_sql, (AirportNumber, t_dict["AirportName"], t_dict["Time_Zone"], t_dict["IATA_Code"],
                                    t_dict["ICAO_Code"], t_dict["Country"], t_dict["Region"], t_dict["Continent"],
@@ -876,41 +866,31 @@ class IntelligentRecommendation:
             post_data.update({'stops:2:airport': self.cache_IATA_to_AirportName.get(SecondDstAirport_IATA,
                                                                                     SecondDstAirport_IATA)})
 
-        def Recursion_GetCurrentRandom(root: bs4_Tag):
+        def Recursion_GetCurrentRandom(root: bs4_Tag, dataDict: dict):
             if root.name == 'form' and 'IFormSubmitListener-route~definition~form' in root.attrs.get('action', ''):
-                post_data['url'] = self.baseURL + '/app/com/routes' + root.attrs.get('action')[1:]
-                post_data[root.contents[0].contents[0].attrs.get('name')] = ''
-                return
-            for t_unit in root.children:
-                if isinstance(t_unit, bs4_Tag):
-                    Recursion_GetCurrentRandom(t_unit)
+                dataDict['url'] = self.baseURL + '/app/com/routes' + root.attrs.get('action')[1:]
+                dataDict[root.contents[0].contents[0].attrs.get('name')] = ''
+                return True
 
-        for unit in BeautifulSoup(DeleteALLChar(firstResponse.text), 'html5lib').children:
-            if isinstance(unit, bs4_Tag):
-                Recursion_GetCurrentRandom(unit)
+        post_data.update(CommonHTMLParser(GetClearHTML(firstResponse), Recursion_GetCurrentRandom))
         post_url = post_data.pop('url')
         result = self.logonSession.post(post_url, post_data)
         result_dict = {'First': 0, 'Second': 0, 'LastResponse': result}
         first_dist_key = '../scheduling/' + FirstDstAirport_IATA.upper() + SrcAirport_IATA.upper()
 
-        def Recursion_GetAirportDistance(root: bs4_Tag):
+        def Recursion_GetAirportDistance(root: bs4_Tag, dataDict: dict):
             if root.name == 'a' and root.attrs.get('href', '') == first_dist_key:
-                result_dict['First'] = int(
+                dataDict['First'] = int(
                     root.parent.parent.contents[6].getText().replace('km', '').replace(',', '').strip())
-                return
+                return True
             elif isinstance(SecondDstAirport_IATA, str) and root.name == 'a' and \
                     ('../scheduling/' + SrcAirport_IATA.upper() +
                      SecondDstAirport_IATA.upper()) == root.attrs.get('href', ''):
-                result_dict['Second'] = int(
+                dataDict['Second'] = int(
                     root.parent.parent.contents[6].getText().replace('km', '').replace(',', '').strip())
-                return
-            for t_unit in root.children:
-                if isinstance(t_unit, bs4_Tag):
-                    Recursion_GetAirportDistance(t_unit)
+                return True
 
-        for unit in BeautifulSoup(DeleteALLChar(result.text), 'html5lib').children:
-            if isinstance(unit, bs4_Tag):
-                Recursion_GetAirportDistance(unit)
+        result_dict.update(CommonHTMLParser(GetClearHTML(result), Recursion_GetAirportDistance))
         if result_dict['First'] > 0 and (SecondDstAirport_IATA is None or
                                          (isinstance(SecondDstAirport_IATA, str) and result_dict['Second'] > 0)):
             print('航程%s - %s计算完成，航程为 %d km。' % (SrcAirport_IATA, FirstDstAirport_IATA, result_dict['First']))
@@ -1045,7 +1025,7 @@ class IntelligentRecommendation:
 
             # 将航班时间切换到UTC时间以统一
 
-            def Recursion_ParseFlightSchedule(root: bs4_Tag):
+            def Recursion_ParseFlightSchedule(root: bs4_Tag, ignored):
                 if root.name == 'tbody':
                     SrcAirport = ''
                     SrcAirport_IATA = ''
@@ -1087,13 +1067,8 @@ class IntelligentRecommendation:
                                                                  WeekPlan[2], WeekPlan[3], WeekPlan[4], WeekPlan[5],
                                                                  WeekPlan[6], IsCargoFlight))
                     return
-                for t_unit in root.children:
-                    if isinstance(t_unit, bs4_Tag):
-                        Recursion_ParseFlightSchedule(t_unit)
 
-            for unit in BeautifulSoup(DeleteALLChar(result.text), 'html5lib').children:
-                if isinstance(unit, bs4_Tag):
-                    Recursion_ParseFlightSchedule(unit)
+            CommonHTMLParser(GetClearHTML(result), Recursion_ParseFlightSchedule)
             if isinstance(AirCompanyName, str) and len(AirCompanyName) > 0:
                 print('对公司 %s 的航班时刻表数据抓取完成。' % AirCompanyName)
         finally:
@@ -1129,21 +1104,16 @@ class IntelligentRecommendation:
                                        'arrival-group:arrival-group_body:arrival': '48',
                                        'ground:useGroundNetwork': 'on'}
 
-                    def Recursion_ParseORSForm(root: bs4_Tag):
+                    def Recursion_ParseORSForm(root: bs4_Tag, dataDict: dict):
                         if root.name == 'form' and 'IFormSubmitListener-form' in root.attrs.get('action', ''):
-                            first_post_data['post_url'] = self.baseURL + '/app/info' + root.attrs.get('action')[1:]
-                            first_post_data[root.contents[0].contents[0].attrs.get('name')] = ''
+                            dataDict['post_url'] = self.baseURL + '/app/info' + root.attrs.get('action')[1:]
+                            dataDict[root.contents[0].contents[0].attrs.get('name')] = ''
                         elif root.name == 'span' and root.getText().strip() in const_cabin_translate[scan_unit]:
-                            first_post_data[root.parent.contents[0].attrs.get('name')] = \
+                            dataDict[root.parent.contents[0].attrs.get('name')] = \
                                 root.parent.contents[0].attrs.get('value')
-                            return
-                        for t_unit in root.children:
-                            if isinstance(t_unit, bs4_Tag):
-                                Recursion_ParseORSForm(t_unit)
+                            return True
 
-                    for unit in BeautifulSoup(DeleteALLChar(first_result.text), 'html5lib'):
-                        if isinstance(unit, bs4_Tag):
-                            Recursion_ParseORSForm(unit)
+                    first_post_data.update(CommonHTMLParser(GetClearHTML(first_result), Recursion_ParseORSForm))
                     # 构建表单数据成功
                     post_url = first_post_data.pop('post_url')
                     search_result = retry_request_Session(t_Session, post_url, data=first_post_data)
@@ -1171,30 +1141,25 @@ class IntelligentRecommendation:
                         next_url_prefix = 'ILinkListener-result-navigation~top-navigation-%d-pageLink' % (
                                 sub_page + 1)
 
-                        def Recursion_ParseORSRatingAndPrice(root: bs4_Tag):
+                        def Recursion_ParseORSRatingAndPrice(root: bs4_Tag, ignored):
                             if root.name == 'a' and next_url_prefix in root.attrs.get('href', ''):
                                 next_url['url'] = self.baseURL + '/app/info' + root.attrs.get('href')[1:]
                             elif root.name == 'tbody':
                                 t_airline = [[], -1, -1]  # 航线数据，拼接构造航线参数
 
-                                def Recursion_ParseSingleRow(root_1: bs4_Tag):
+                                def Recursion_ParseSingleRow(root_1: bs4_Tag, dataList: list):
                                     if root_1.name == 'a' and '/action/info/flight?id=' in root_1.attrs.get('href',
                                                                                                             ''):
-                                        t_airline[0].append(root_1.getText().strip())
+                                        dataList[0].append(root_1.getText().strip())
                                     elif root_1.name == 'tr' and 'totals' in root_1.attrs.get('class', []):
-                                        t_airline[2] = int(
+                                        dataList[2] = int(
                                             root_1.contents[2].contents[0].attrs.get('title').split()[1])
-                                        t_airline[1] = int(
+                                        dataList[1] = int(
                                             root_1.contents[3].getText().replace('AS$', '').replace(',',
                                                                                                     '').strip())
-                                        return
-                                    for t_unit_1 in root_1.children:
-                                        if isinstance(t_unit_1, bs4_Tag):
-                                            Recursion_ParseSingleRow(t_unit_1)
+                                        return True
 
-                                for t_unit in root.children:
-                                    if isinstance(t_unit, bs4_Tag):
-                                        Recursion_ParseSingleRow(t_unit)
+                                t_airline = CommonHTMLParser(root, Recursion_ParseSingleRow, t_airline)
                                 # 单行解析完成
                                 AirlineCode = '|'.join(t_airline[0])
                                 if AirlineCode not in cache_dict.keys():
@@ -1202,13 +1167,8 @@ class IntelligentRecommendation:
                                 cache_dict[AirlineCode][scan_unit * 2 + 1] = t_airline[1]
                                 cache_dict[AirlineCode][scan_unit * 2 + 2] = t_airline[2]
                                 return
-                            for t_unit in root.children:
-                                if isinstance(t_unit, bs4_Tag):
-                                    Recursion_ParseORSRatingAndPrice(t_unit)
 
-                        for unit in BeautifulSoup(DeleteALLChar(search_result.text), 'html5lib').children:
-                            if isinstance(unit, bs4_Tag):
-                                Recursion_ParseORSRatingAndPrice(unit)
+                        CommonHTMLParser(GetClearHTML(search_result), Recursion_ParseORSRatingAndPrice)
                         if len(next_url) > 0:
                             search_result = retry_request_Session(t_Session, next_url.get('url'))
                 # 数据收集完成，写入数据库缓存
@@ -1230,34 +1190,24 @@ class IntelligentRecommendation:
         cache_FirstLetter = []
         enterprises_url = self.baseURL + '/app/info/enterprises'
 
-        def Recursion_ParseFirstLetter(root: bs4_Tag):
+        def Recursion_ParseFirstLetter(root: bs4_Tag, ignored):
             if root.name == 'a' and root.attrs.get('href', '').startswith('./enterprises') and \
                     'letter=' in root.attrs.get('href', ''):
                 from urllib.parse import urlparse
                 cache_FirstLetter.append(enterprises_url + '?' + urlparse(root.attrs.get('href')).query)
                 return
-            for t_unit in root.children:
-                if isinstance(t_unit, bs4_Tag):
-                    Recursion_ParseFirstLetter(t_unit)
 
-        def Recursion_ParseAirCompanyURL(root: bs4_Tag):
+        def Recursion_ParseAirCompanyURL(root: bs4_Tag, ignored):
             if root.name == 'a' and root.attrs.get('href', '').startswith('./enterprises/'):
                 from urllib.parse import urlparse
                 cache_AirCompanyURL[root.getText().strip()] = self.baseURL + '/app/info' + \
                                                               urlparse(root.attrs.get('href')).path[1:]
                 return
-            for t_unit in root.children:
-                if isinstance(t_unit, bs4_Tag):
-                    Recursion_ParseAirCompanyURL(t_unit)
 
-        for unit in BeautifulSoup(DeleteALLChar(retry_request(enterprises_url).text), 'html5lib').children:
-            if isinstance(unit, bs4_Tag):
-                Recursion_ParseFirstLetter(unit)
+        CommonHTMLParser(GetClearHTML(retry_request(enterprises_url)), Recursion_ParseFirstLetter)
         # 解析了所有字母的索引，准备解析企业数据
         for letter in cache_FirstLetter:
-            for unit in BeautifulSoup(DeleteALLChar(retry_request(letter).text), 'html5lib').children:
-                if isinstance(unit, bs4_Tag):
-                    Recursion_ParseAirCompanyURL(unit)
+            CommonHTMLParser(GetClearHTML(retry_request(letter)), Recursion_ParseAirCompanyURL)
         return cache_AirCompanyURL
 
     @staticmethod
@@ -1280,3 +1230,301 @@ class IntelligentRecommendation:
     3、周边航点挖掘完利润后，从KWI考虑进入欧洲地区的航点，或者考虑下前往澳大利亚
     4、从欧洲撒网去亚洲和非洲，非洲的部分4级以上航点可以和5级以上享受同等待遇（亚非联动的时候可适当考量小体型飞机）
     """
+
+
+class GetBusinessStatistics:
+    # 基础信息收集
+    AirCompanies = []
+    current_TotalPassengerData = {}
+    current_TotalCargoData = {}
+    current_WeekPassengerData = {}
+    current_WeekPassengerCapacityData = {}
+    current_WeekCargoData = {}
+    current_WeekCargoCapacityData = {}
+    map_english_to_chinese = {'ALL': '世界'}
+    # 线程池参数（这个进程不需要存储数据库，因此线程将被滥发）
+    __pool_workTasks = []  # 工作线程任务池，每个任务参数以tuple(信息分类，大洲，国家)形式
+    __pool_hasFinishedThread = []
+    # Const
+    const_countryName_to_id = {}
+    const_continentName_to_id = {}
+    const_TotalPassenger = 'entpax'
+    const_TotalCargo = 'entcargo'
+    const_WeekPassenger = 'transrecpax'
+    const_WeekCargo = 'transreccargo'
+    const_WeekPassengerCapacity = 'transrecpaxcap'
+    const_WeekCargoCapacity = 'transreccargocap'
+
+    def __init__(self, ServerName: str, callback_InitOK=None):
+        """
+        指定需要提取统计信息的服务器的名称，以及在初始化线程执行完成后调用的回调函数。
+
+        :param ServerName: 服务器名称，请参考LoginAirlineSim.ServerMap
+        :param callback_InitOK: 回调函数，无参，将在初始化线程执行完毕前调用
+        """
+        from LoginAirlineSim import ServerMap, getBaseURL
+
+        if ServerName not in ServerMap.keys():
+            raise Exception('必须指定正确的服务器名称！')
+        self.baseURL = getBaseURL(ServerName)
+        Thread(target=self.__thread_InitBasicInfo).start()
+        self.__function_InitOK = callback_InitOK
+        self.__group_const_info = (self.const_TotalPassenger, self.const_TotalCargo, self.const_WeekPassenger,
+                                   self.const_WeekPassengerCapacity, self.const_WeekCargo, self.const_WeekCargoCapacity)
+
+    def GetBusinessStatistics(self, savePath: str, extractTotalPassenger: bool = False, extractTotalCargo: bool = False,
+                              extractWeekPassenger: bool = False, extractWeekPassengerCapacity: bool = False,
+                              extractWeekCargo: bool = False, extractWeekCargoCapacity: bool = False,
+                              specialContinent: list = None, specialCountries: list = None,
+                              specialCompanies: list = None):
+        """
+        用户级接口，负责该类的对外调用。
+
+        如果指定了企业列表，则从所给的大洲和国家列表之中收集所有企业的信息，并以指定的企业列表筛选出数据。
+
+        如果未指定企业列表，则以大洲和国家列表名列出企业的信息。
+
+        :param savePath: 结果的存放文件，只提供Excel文档。
+        :param extractTotalPassenger: 是否导出总旅客运送量的数据。
+        :param extractTotalCargo: 是否导出总货物运输量的数据
+        :param extractWeekPassenger: 是否导出周旅客运送量的数据。
+        :param extractWeekPassengerCapacity: 是否导出周旅客上限承载量的数据。
+        :param extractWeekCargo: 是否导出周货物运输量的数据。
+        :param extractWeekCargoCapacity: 是否导出周货物上限承载量的数据。
+        :param specialContinent: 指定仅收集哪些大洲的信息（单独列出）。
+        :param specialCountries: 指定仅收集哪些国家的信息（单独列出）。
+        :param specialCompanies: 指定仅收集哪些企业的信息（单独列出），会受到大洲和国家的限制。
+        """
+        extractFlags = [extractTotalPassenger, extractTotalCargo, extractWeekPassenger, extractWeekPassengerCapacity,
+                        extractWeekCargo, extractWeekCargoCapacity]
+        assert extractFlags.count(False) + extractFlags.count(True) == 6, '无法识别的一个或多个提取参数。'
+        if extractFlags.count(False) == len(extractFlags):
+            return
+        self.__getBusinessStatisticsData(extractFlags, specialContinent, specialCountries)
+        if specialCountries is None and specialContinent is None:
+            tableUnitNames = None
+        else:
+            tableUnitNames = []
+            if isinstance(specialContinent, list):
+                tableUnitNames += specialContinent
+            if isinstance(specialCountries, list):
+                tableUnitNames += specialCountries
+            if len(tableUnitNames) == 0:
+                tableUnitNames = None
+        if not savePath.lower().endswith('.xlsx'):
+            savePath += '.xlsx'
+        self.__outputExcel(savePath, extractFlags, tableUnitNames, specialCompanies)
+
+    def __outputExcel(self, savePath: str, infoExtractPara: list, sheetFilter: list = None,
+                      specialCompany: list = None):
+        import openpyxl
+        cache_agent = [self.current_TotalPassengerData, self.current_TotalCargoData, self.current_WeekPassengerData,
+                       self.current_WeekPassengerCapacityData, self.current_WeekCargoData,
+                       self.current_WeekCargoCapacityData]
+
+        def addSheetHeader(sheet: openpyxl.workbook.workbook.Worksheet):
+            const_first_line = ['总客流量', '总载货量', '周客流量', '周客运承载量', '周载货量', '周载货承载量']
+            const_second_line = ['排名', '市场份额', '百分比']
+            first_line = ['']
+            second_line = ['']
+            for infoIndex in range(6):
+                if infoExtractPara[infoIndex]:
+                    first_line += [const_first_line[infoIndex], '', '']
+                    second_line += const_second_line
+            sheet.append(first_line)
+            sheet.append(second_line)
+            for infoIndex in range(infoExtractPara.count(True)):
+                sheet.merge_cells('%s1:%s1' % (chr(ord('B') + infoIndex * 3), chr(ord('D') + infoIndex * 3)))
+
+        if not isinstance(sheetFilter, list) or len(sheetFilter) == 0:
+            sheetFilter = ['ALL']
+        resultWorkbook = openpyxl.Workbook()
+        resultWorkbook.remove(resultWorkbook.active)
+        if isinstance(specialCompany, list) and len(specialCompany) > 0:
+            for company in specialCompany:
+                tSheet = resultWorkbook.create_sheet(company)
+                addSheetHeader(tSheet)
+                for filterStr in sheetFilter:
+                    row_data = ['%s/%s' % (self.map_english_to_chinese.get(filterStr, filterStr), filterStr)]
+                    for infoID in range(len(infoExtractPara)):
+                        if infoExtractPara[infoID] and filterStr in cache_agent[infoID].keys():
+                            unit_dict: dict = cache_agent[infoID].get(filterStr, {}).get(company, {})
+                            row_data.append(unit_dict.get('Order', 'N/A'))
+                            row_data.append(unit_dict.get('MarketShare', '0'))
+                            row_data.append(unit_dict.get('Percentage', '0%'))
+                    tSheet.append(row_data)
+        else:
+            for filterStr in sheetFilter:
+                tSheet = resultWorkbook.create_sheet('%s/%s' % (
+                    self.map_english_to_chinese.get(filterStr, filterStr), filterStr))
+                tSet = set()
+                for infoID in range(len(infoExtractPara)):
+                    if infoExtractPara[infoID]:
+                        tSet.update(list(cache_agent[infoID].get(filterStr, {}).keys()))
+                for company in list(tSet):
+                    row_data = [company]
+                    for infoID in range(len(infoExtractPara)):
+                        if infoExtractPara[infoID]:
+                            unit_dict: dict = cache_agent[infoID].get(filterStr, {}).get(company, {})
+                            row_data.append(unit_dict.get('Order', 'N/A'))
+                            row_data.append(unit_dict.get('MarketShare', '0'))
+                            row_data.append(unit_dict.get('Percentage', '0%'))
+                    tSheet.append(row_data)
+        try:
+            resultWorkbook.save(savePath)
+        except:
+            from datetime import datetime
+            resultWorkbook.save('AS_Total_%s.xlsx' % datetime.now().strftime('%Y%m%d%H%M%S'))
+
+    def __getBusinessStatisticsData(self, infoExtractPara: list, specialContinent: list = None,
+                                    specialCountry: list = None):
+        """
+        根据筛选器构造URL并监控执行，此处需要长时间等待。
+
+        :param infoExtractPara: 提取参数，与group_const_info定义相同，但全是Boolean值
+        :param specialContinent: 特定大洲
+        :param specialCountry: 特定国家
+        """
+        if not isinstance(infoExtractPara, list) or len(infoExtractPara) != 6 or infoExtractPara.count(True) < 1 or \
+                infoExtractPara.count(True) + infoExtractPara.count(False) != 6:
+            raise IndexError('参数infoExtractPara不符合格式！')
+        for boolID in range(6):
+            if infoExtractPara[boolID]:
+                if specialCountry is None and specialContinent is None or (
+                        isinstance(specialContinent, list) and len(specialContinent) == 0 and
+                        isinstance(specialCountry, list) and len(specialCountry) == 0):
+                    if 0 <= boolID <= 1:
+                        continue  # 之前已经采集过了，使用缓存信息即可
+                    self.__pool_workTasks.append((self.__group_const_info[boolID], 'ALL', 'ALL'))
+                else:
+                    if isinstance(specialCountry, list):
+                        for unit in specialCountry:
+                            if isinstance(unit, str) and len(unit) > 0:
+                                self.__pool_workTasks.append((self.__group_const_info[boolID], unit, None))
+                    if isinstance(specialContinent, list):
+                        for unit in specialContinent:
+                            if isinstance(unit, str) and len(unit) > 0:
+                                self.__pool_workTasks.append((self.__group_const_info[boolID], None, unit))
+        total_threads = len(self.__pool_workTasks)
+        for threadInt in range(total_threads):
+            Thread(target=self.__thread_WorkThread).start()
+        while len(self.__pool_hasFinishedThread) < total_threads:
+            from time import sleep
+            sleep(5)
+        self.__pool_hasFinishedThread.clear()
+
+    """
+    设计目的：一个可以自动化收集信息并输出为Excel或者HTML（待设计）的报告结果。
+    初始可收集信息：企业 - （客运总量/entpax，货运总量/entcargo，周客运量/transrecpax，周客运容量/transrecpaxcap，
+                        周货运量/transreccargo，周货运容量/transreccargocap）
+    可用条件筛选器：国家、大洲、无分类（世界）
+    --------------------------------
+    操作流程：信息收集 -> 分类存放 -> 整理输出
+    --------------------------------
+    基类实现：
+    收集特定企业的特定数据
+    --------------------------------
+    导出笔记：
+    优先筛选企业，对空缺部分以“无数据”填补。
+    当没有特定企业的时候，以大洲/国家列出存储的企业信息（ALL也算）。
+    纵轴为企业名称，横轴为数据。
+    """
+
+    def __getInfoURL(self, infoType: str, country: str = None, continent: str = None, unlimited: bool = True):
+        """
+        构造URL。
+
+        :param infoType: 要收集的信息类型
+        :param country: 可选，国家
+        :param continent: 可选，大洲
+        :param unlimited: 无限制地取数
+        :return: 构建好的URL
+        """
+        result = self.baseURL + '/action/info/stat?type=' + infoType
+        if isinstance(country, str) and country in self.const_countryName_to_id.keys():
+            result += '&country=' + self.const_countryName_to_id.get(country)
+        elif isinstance(continent, str) and continent in self.const_continentName_to_id.keys():
+            result += '&continent=' + self.const_continentName_to_id.get(continent)
+        if unlimited:
+            result += '&limit=0'
+        return result
+
+    def __thread_InitBasicInfo(self):
+        """初始化基础信息收集，但同时也会收集全局总旅客量信息和全局总货物运输信息。"""
+        from PublicCode import Continent_UI, Countries_UI
+        for tStr in Continent_UI.keys():
+            self.map_english_to_chinese[Continent_UI.get(tStr)] = tStr
+        for tStr in Countries_UI.keys():
+            self.map_english_to_chinese[Countries_UI.get(tStr)] = tStr
+        # 下面开始原操作流程
+        startPage = GetClearHTML(retry_request(self.__getInfoURL(self.const_TotalPassenger)))
+
+        def parseHTML_GetCountriesIndex(root: bs4_Tag, dataDict: dict):
+            if root.name == 'select' and root.attrs.get('name', '') == 'country':
+                for country in root.children:
+                    if isinstance(country, bs4_Tag) and country.name == 'option':
+                        dataDict[country.getText().strip()] = country.attrs.get('value')
+                return True
+
+        def parseHTML_GetContinentIndex(root: bs4_Tag, dataDict: dict):
+            if root.name == 'select' and root.attrs.get('name', '') == 'continent':
+                for country in root.children:
+                    if isinstance(country, bs4_Tag) and country.name == 'option':
+                        dataDict[country.getText().strip()] = country.attrs.get('value')
+                return True
+
+        self.const_countryName_to_id.update(CommonHTMLParser(startPage, parseHTML_GetCountriesIndex))
+        self.const_continentName_to_id.update(CommonHTMLParser(startPage, parseHTML_GetContinentIndex))
+        self.current_TotalPassengerData['ALL'] = CommonHTMLParser(startPage, self.parseHTML_GetStatisticsInfo)
+        self.current_TotalCargoData['ALL'] = CommonHTMLParser(GetClearHTML(retry_request(self.__getInfoURL(
+            self.const_TotalCargo))), self.parseHTML_GetStatisticsInfo)
+        tSet = set(list(self.current_TotalPassengerData.keys()))
+        tSet.update(list(self.current_TotalCargoData.keys()))
+        self.AirCompanies = list(tSet)
+        if callable(self.__function_InitOK):
+            try:
+                self.__function_InitOK()
+            finally:
+                pass
+
+    def __thread_WorkThread(self):
+        try:
+            thisTaskPara = self.__pool_workTasks.pop()
+            if thisTaskPara[0] not in self.__group_const_info or len(thisTaskPara) < 3:
+                self.__pool_hasFinishedThread.append(False)
+                return
+        except IndexError:
+            self.__pool_hasFinishedThread.append(False)
+            return
+        url = self.__getInfoURL(thisTaskPara[0], thisTaskPara[1], thisTaskPara[2])
+        result = CommonHTMLParser(GetClearHTML(retry_request(url)), self.parseHTML_GetStatisticsInfo)
+        if isinstance(thisTaskPara[1], str):
+            taskKey = thisTaskPara[1]
+        else:
+            taskKey = thisTaskPara[2]
+        if thisTaskPara[0] == self.const_TotalPassenger:
+            self.current_TotalPassengerData[taskKey] = result
+        elif thisTaskPara[0] == self.const_TotalCargo:
+            self.current_TotalCargoData[taskKey] = result
+        elif thisTaskPara[0] == self.const_WeekPassenger:
+            self.current_WeekPassengerData[taskKey] = result
+        elif thisTaskPara[0] == self.const_WeekPassengerCapacity:
+            self.current_WeekPassengerCapacityData[taskKey] = result
+        elif thisTaskPara[0] == self.const_WeekCargo:
+            self.current_WeekCargoData[taskKey] = result
+        else:
+            self.current_WeekCargoCapacityData[taskKey] = result
+        self.__pool_hasFinishedThread.append(True)
+
+    @staticmethod
+    def parseHTML_GetStatisticsInfo(root: bs4_Tag, dataDict: dict):
+        """仅用于获取统计表单信息，被获取的信息包括：排名、企业名称（Key）、旅客量/货物量、占比数值"""
+        if root.name == 'tr' and root.parent.name == 'tbody':
+            # 进入了一个行
+            order_int = int(root.contents[0].getText())
+            company_name = root.contents[1].contents[0].getText()
+            tVar = root.contents[-1].getText().strip().split()
+            total_int = int(tVar[0].replace(',', ''))
+            marketShare_float = tVar[-1]
+            dataDict[company_name] = {'Order': order_int, 'MarketShare': total_int, 'Percentage': marketShare_float}
+            return True
