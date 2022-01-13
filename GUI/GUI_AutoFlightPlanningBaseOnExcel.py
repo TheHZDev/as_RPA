@@ -186,8 +186,9 @@ class GUIAutoFlightPlanningBaseOnExcel(wx.Frame):
         self.InputMinMaintenanceRadio.Bind(wx.EVT_KILL_FOCUS, self.InputMinMaintenanceRadioOnKillFocus)
 
         # Init
-        self.flightPlanningSystem = FlightPlanningSystemBaseOnExcel(logonSession, serverName, self.callback_LogOutput,
-                                                                    self.SetStatusText)
+        self.flightPlanningSystem = FlightPlanningSystemBaseOnExcel(logonSession, serverName, self.callback_PostError,
+                                                                    self.callback_LogOutput,
+                                                                    self.callback_ShowMessageDialog)
 
     def __del__(self):
         pass
@@ -224,7 +225,7 @@ class GUIAutoFlightPlanningBaseOnExcel(wx.Frame):
         inputFileDialog.ShowModal()
         try:
             tWorkbook = openpyxl.open(inputFileDialog.GetPath(), read_only=True)
-            self.flightPlanningSystem.readExcelAndBuildConfig(tWorkbook)
+            self.flightPlanningSystem.ReadExcelAndBuildConfig(tWorkbook)
             wx.MessageDialog(self, '排程信息导入成功！', '导入完成', wx.ICON_INFORMATION | wx.OK).ShowModal()
             self.ExecuteInputtedFlightButton.Enable()
         except:
@@ -289,6 +290,18 @@ class GUIAutoFlightPlanningBaseOnExcel(wx.Frame):
     def callback_LogOutput(self, logStr: str):
         from datetime import datetime
         self.UILogOutputText.AppendText(datetime.now().strftime('%H:%M:%S : ') + logStr + '\n')
+        self.SetStatusText(logStr)
+
+    def callback_PostError(self, errorText: str):
+        self.callback_ShowMessageDialog(errorText)
+        # 弹窗告警 + 文本输出
+        self.callback_LogOutput(errorText)
+
+    def callback_ShowMessageDialog(self, msgText: str):
+        wx.CallAfter(self.thread_ShowMessageDialog, msgText)
+
+    def thread_ShowMessageDialog(self, msgText: str):
+        wx.MessageDialog(self, msgText, '告警', wx.ICON_INFORMATION | wx.OK).ShowModal()
 
     # 规程定义区
     def checkGenerateButton(self):
@@ -307,7 +320,7 @@ class GUIAutoFlightPlanningBaseOnExcel(wx.Frame):
             if len(self.flightPlanningSystem.cache_info) > 0:
                 self.GenerateExcelTemplateButton.SetLabel(self.const_OutputTemplate)
                 self.InputFlightPlanExcelButton.Enable()
-                if len(self.flightPlanningSystem.inputtedFlightPlanData) > 0:
+                if len(self.flightPlanningSystem.InputtedFlightPlanData) > 0:
                     self.ExecuteInputtedFlightButton.Enable()
             self.GenerateExcelTemplateButton.Enable()
             self.IsSearchSubCompany.Enable()
@@ -316,19 +329,20 @@ class GUIAutoFlightPlanningBaseOnExcel(wx.Frame):
 
 
 class FlightPlanningSystemBaseOnExcel(NewFlightPlanningSystem):
-    inputtedFlightPlanData = {}
+    InputtedFlightPlanData = {}
 
-    flag_ExitProgram = False
+    __flag_ExitProgram = False
 
-    def __init__(self, LogonSession: Session, ServerName: str, callback_LogOutput, callback_ShowInstantMsg):
+    def __init__(self, LogonSession: Session, ServerName: str, callback_ReportError, callback_ShowProgressText,
+                 callback_ShowInstantMsg):
 
-        super().__init__(LogonSession, ServerName, callback_ReportError=callback_LogOutput,
-                         callback_ShowProgressText=callback_LogOutput)
+        super().__init__(LogonSession, ServerName, callback_ReportError=callback_ReportError,
+                         callback_ShowProgressText=callback_ShowProgressText)
 
         self.function_ShowInstantMsg = callback_ShowInstantMsg
 
     def PrepareExit(self):
-        self.flag_ExitProgram = True
+        self.__flag_ExitProgram = True
 
     def GenerateExcelTemplateAndOutput(self, SavePath: str):
         """
@@ -339,9 +353,9 @@ class FlightPlanningSystemBaseOnExcel(NewFlightPlanningSystem):
             self.basic_ReportError('没有收集任何信息，无需导出。')
             return
         outputWorkbook = openpyxl.Workbook()
-        self.initHelpTextInExcel(outputWorkbook)
-        self.initStationsInfoInExcel(outputWorkbook)
-        self.initFlightTemplateInExcel(outputWorkbook)
+        self.__initHelpTextInExcel(outputWorkbook)
+        self.__initStationsInfoInExcel(outputWorkbook)
+        self.__initFlightTemplateInExcel(outputWorkbook)
         try:
             outputWorkbook.save(SavePath)
         except:
@@ -352,7 +366,7 @@ class FlightPlanningSystemBaseOnExcel(NewFlightPlanningSystem):
             self.basic_ShowProgress('排班模板已保存到%s中。' % SavePath)
             outputWorkbook.close()
 
-    def initHelpTextInExcel(self, newWorkbook: openpyxl.Workbook):
+    def __initHelpTextInExcel(self, newWorkbook: openpyxl.Workbook):
         """初始化帮助信息，并将服务方案示例写入当前表格"""
         help_Text = [('列名', '帮助说明'), ('所属公司', '此航机所属的企业的名称。'), ('航机型号', '此航机的航机型号。'), ('航机编号', '此航机在游戏中的唯一注册编号。'),
                      ('航机健康度', '此航机的当前健康度。'), ('航机维护比', '此航机在排程之前的预期维护比。'), ('航机机龄', '此航机的服役年龄。'),
@@ -390,7 +404,7 @@ class FlightPlanningSystemBaseOnExcel(NewFlightPlanningSystem):
         for line in service_list:
             first_sheet.append(line)
 
-    def initStationsInfoInExcel(self, newWorkBook: Workbook):
+    def __initStationsInfoInExcel(self, newWorkBook: Workbook):
         """在排班模板中插入子公司的航站信息表"""
         for SubCompany_name in self.cache_info.keys():
             if 'StationsInfo' not in self.cache_info.get(SubCompany_name).keys():
@@ -431,7 +445,7 @@ class FlightPlanningSystemBaseOnExcel(NewFlightPlanningSystem):
             openpyxl_ConfigAlignment(station_table, 'A1:N%d' % (len(all_line) + 2), 'center')
         # 完成对航站信息的序列化建表
 
-    def initFlightTemplateInExcel(self, newWorkBook: Workbook):
+    def __initFlightTemplateInExcel(self, newWorkBook: Workbook):
         """按公司填写待排班的航机信息，但最后的工作表的表名是航机注册号"""
         pre_table_head_1 = ('所属公司', '航机型号', '航机健康度', '航机维护比', '航机机龄', '航机任务', '位置', 'Y/C/F', '排程状态')
         pre_table_head_2 = ('出发时间', '出发机场', '出发航站楼', '目的机场', '目的航站楼', '价格系数', '服务方案', '加速/减速', '周计划排班', '备注')
@@ -466,7 +480,7 @@ class FlightPlanningSystemBaseOnExcel(NewFlightPlanningSystem):
                 for columnID in range(len(column_range)):
                     new_table.column_dimensions[column_range[columnID]].width = column_length[columnID]
 
-    def readExcelAndBuildConfig(self, openedWorkBook: Workbook):
+    def ReadExcelAndBuildConfig(self, openedWorkBook: Workbook):
         """
         内部工作流程：
         1、读取缓存字典数据，确定各个公司的待排班航机列表、服务方案和航站数据。
@@ -521,6 +535,19 @@ class FlightPlanningSystemBaseOnExcel(NewFlightPlanningSystem):
                             break
                         # 目的机场为空，则不继续往下查询
                         airline_dict = {}
+                        """
+                        内部元素及其含义：
+                        DepartureHour - 起飞时间的小时数（可能不存在）
+                        DepartureMinute - 起飞时间的分钟数
+                        SrcAirport - 出发机场
+                        DstAirport - 到达/目的机场
+                        SrcTerminal - 出发机场使用的航站楼，T(int)
+                        DstTerminal - 到达/目的机场使用的航站楼
+                        Price - 价格系数，50 ~ 200
+                        Service - 服务方案名称
+                        Week - 周排班计划，[bool] * 7
+                        Speed - 速度安排，大于0加速，小于0减速
+                        """
                         if currentSheet['A%d' % rowIndex].value is not None:
                             departureTime: str = str(currentSheet['A%d' % rowIndex].value).strip()
                             try:
@@ -531,7 +558,7 @@ class FlightPlanningSystemBaseOnExcel(NewFlightPlanningSystem):
                                     airline_dict.update({'DepartureHour': departureHour,
                                                          'DepartureMinute': departureMinute})
                             except:
-                                self.advance_ReportExcelError(registerID, ('A', rowIndex), '不是一个正确的时间！')
+                                self.__advance_ReportExcelError(registerID, ('A', rowIndex), '不是一个正确的时间！')
                         # 检测起飞时间 OK
                         if currentSheet['B%d' % rowIndex].value is not None:
                             airline_dict['SrcAirport'] = str(currentSheet['B%d' % rowIndex].value).strip()
@@ -550,7 +577,7 @@ class FlightPlanningSystemBaseOnExcel(NewFlightPlanningSystem):
                             if airline_dict.get('SrcAirport') not in stationsInfo.keys() or departureTerminal not in \
                                     stationsInfo.get(airline_dict['SrcAirport']).get('ExtraTerminal', []):
                                 # 未找到机场，或者找不到对应的额外航站楼，直接报错
-                                self.advance_ReportExcelError(registerID, ('C', rowIndex), '没发现航站楼信息，已重置为T1。')
+                                self.__advance_ReportExcelError(registerID, ('C', rowIndex), '没发现航站楼信息，已重置为T1。')
                             else:
                                 airline_dict['SrcTerminal'] = departureTerminal
                         # 出发航站楼 OK
@@ -562,7 +589,7 @@ class FlightPlanningSystemBaseOnExcel(NewFlightPlanningSystem):
                             if airline_dict.get('DstAirport') not in stationsInfo.keys() or arriveTerminal not in \
                                     stationsInfo.get(airline_dict['DstAirport']).get('ExtraTerminal', []):
                                 # 未找到机场，或者找不到对应的额外航站楼，直接报错
-                                self.advance_ReportExcelError(registerID, ('E', rowIndex), '没发现航站楼信息，已重置为T1。')
+                                self.__advance_ReportExcelError(registerID, ('E', rowIndex), '没发现航站楼信息，已重置为T1。')
                             else:
                                 airline_dict['DstTerminal'] = arriveTerminal
                         # 到达航站楼 OK
@@ -572,7 +599,7 @@ class FlightPlanningSystemBaseOnExcel(NewFlightPlanningSystem):
                                 if 50 <= price_value <= 200:
                                     airline_dict['Price'] = price_value
                             except:
-                                self.advance_ReportExcelError(registerID, ('F', rowIndex), '价格系数不正确！')
+                                self.__advance_ReportExcelError(registerID, ('F', rowIndex), '价格系数不正确！')
                         if 'Price' not in airline_dict.keys():
                             if len(airlineOrder) == 0:
                                 airline_dict['Price'] = 100
@@ -606,8 +633,8 @@ class FlightPlanningSystemBaseOnExcel(NewFlightPlanningSystem):
                                         weekDay['1234567'.index(day)] = True
                                 airline_dict['Week'] = weekDay
                             except:
-                                self.advance_ReportExcelError(registerID, ('H', rowIndex),
-                                                              '周排班计划不正确！已重置为一周全排。')
+                                self.__advance_ReportExcelError(registerID, ('H', rowIndex),
+                                                                '周排班计划不正确！已重置为一周全排。')
                                 airline_dict['Week'] = [True] * 7
                         # 周计划排班 OK
                         # ALL OK
@@ -616,15 +643,17 @@ class FlightPlanningSystemBaseOnExcel(NewFlightPlanningSystem):
                         cache_airlinesInfo[registerID] = airlineOrder
             if len(cache_airlinesInfo) > 0:
                 result[airCompany] = cache_airlinesInfo
+        # 最终映射关系：类内缓存器 -> 所属企业 --dict-> 所属航机 --dict-> 排程列表 --list-> 具体排程(dict)
         cache_readonly_AirCompanyInfo.clear()
-        self.inputtedFlightPlanData.clear()
-        self.inputtedFlightPlanData.update(result)
+        self.InputtedFlightPlanData.clear()
+        self.InputtedFlightPlanData.update(result)
         return result
 
     def Thread_FlightManager(self, AutoCleanUselessAirlineCode: bool = False, AutoSetUpNewStations: bool = False,
                              MinMaintenanceRadio: float = None, DefaultCommit: int = -1):
         """
-        航班排程管理线程（防止卡住UI运转）\n
+        航班管理器排程管理线程，其将会根据所给的排程系统对各个已载入的航班进行排程。
+
         :param AutoCleanUselessAirlineCode: 是否自动清理无用航班号码
         :param AutoSetUpNewStations: 是否自动开设新航站
         :param MinMaintenanceRadio: 最低维护比例
@@ -632,10 +661,65 @@ class FlightPlanningSystemBaseOnExcel(NewFlightPlanningSystem):
         """
         if AutoCleanUselessAirlineCode:
             self.ClearUnusableAirlineNumber()
+        cache_NoStations = self.__analyzeNoExistsStation()
+        for company in self.InputtedFlightPlanData.keys():
+            self.SwitchToSubCompany(company)
+            cache_Fleets: dict = self.cache_info.get(company).get('Fleets')
+            if AutoSetUpNewStations and company in cache_NoStations.keys():
+                self.SetUpNewStation(cache_NoStations.get(company))
+            flag_lowMaintainRadio = -1
+            for registeredID in self.InputtedFlightPlanData.get(company).keys():
+                airlineManageURL = cache_Fleets.get(registeredID).get('url')
+                if cache_Fleets.get(registeredID).get('IsNeedInit'):
+                    self.ExecuteAirlinePlan(4, airlineManageURL)  # 删除排程计划
+                lastResponse = self.retryGET(airlineManageURL)
+                for airline in self.InputtedFlightPlanData.get(company).get(registeredID):
+                    result = self.EstablishNewAirline(airlineManageURL, airline.get('SrcAirport'),
+                                                      airline.get('DstAirport'), airline.get('Price'),
+                                                      airline.get('Service'), airline.get('Week'),
+                                                      airline.get('SrcTerminal'), airline.get('DstTerminal'),
+                                                      airline.get('DepartureHour', -1),
+                                                      airline.get('DepartureMinute', -1),
+                                                      airline.get('Speed', 0), lastResponse)
+                    lastResponse = result.get('lastResponse')
+                    if isinstance(MinMaintenanceRadio, float) or isinstance(MinMaintenanceRadio, int):
+                        if lastResponse.get('maintenance_ratio', 2 ** 32) <= MinMaintenanceRadio:
+                            flag_lowMaintainRadio = lastResponse.get('maintenance_ratio')
+                            break
+                if flag_lowMaintainRadio > 1:
+                    self.__showInstantMsg('航机 %s 的维护比为 %.2f，排程已终止！' % (registeredID, flag_lowMaintainRadio))
+                elif isinstance(DefaultCommit, int) and 1 <= DefaultCommit <= 4:
+                    self.ExecuteAirlinePlan(DefaultCommit, airlineManageURL, lastResponse)
+                    self.basic_ShowProgress('航机 %s 的排班已完成，并正常提交。' % registeredID)
+                else:
+                    self.basic_ShowProgress('航机 %s 的排班已完成。' % registeredID)
+            self.basic_ShowProgress('企业 %s 的航机排程任务已结束。' % company)
+        pass
 
-    def advance_ReportExcelError(self, worksheetName: str, unitName: tuple, errorMsg: str):
+    def __analyzeNoExistsStation(self):
+        """以已收集的航站信息表为参照，解析未开设航站。"""
+        resultDict = {}
+        for company in self.InputtedFlightPlanData.keys():
+            referenceCode = []
+            for station in self.cache_info.get(company).get('StationsInfo').keys():
+                referenceCode.append(station)
+                referenceCode.append(self.cache_info.get(company).get('StationsInfo').get(station).get('Name'))
+            resultSet = set()
+            for registeredID in self.InputtedFlightPlanData.get(company).keys():
+                toAnalyzeList: list = self.InputtedFlightPlanData.get(company).get(registeredID)
+                for airline in toAnalyzeList:
+                    if airline.get('SrcAirport') not in referenceCode:
+                        resultSet.add(airline.get('SrcAirport'))
+                    if airline.get('DstAirport') not in referenceCode:
+                        resultSet.add(airline.get('DstAirport'))
+            if len(resultSet) > 0:
+                resultDict[company] = list(resultSet)
+        return resultDict
+
+    def __advance_ReportExcelError(self, worksheetName: str, unitName: tuple, errorMsg: str):
         """
         Excel内部事务处理报错模块
+
         :param worksheetName: Excel工作表名称
         :param unitName: 单元名称（列，行）
         :param errorMsg: 错误文本
@@ -643,6 +727,12 @@ class FlightPlanningSystemBaseOnExcel(NewFlightPlanningSystem):
         try:
             errorText = '在工作表%s' % worksheetName + '的%s%d发生错误，错误信息为：' % unitName + errorMsg
             self.basic_ReportError(errorText)
+        except:
+            pass
+
+    def __showInstantMsg(self, msgText: str):
+        try:
+            self.function_ShowInstantMsg(msgText)
         except:
             pass
 

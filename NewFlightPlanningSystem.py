@@ -98,7 +98,8 @@ class NewFlightPlanningSystem:
 
     def SearchAirlineInfo(self, AutoSearchSubCompany: bool = False):
         """
-        搜集航线的基本信息，包括往来机场、服务方案
+        搜集航线的基本信息，包括往来机场、服务方案。（此函数仅搜集名字信息，不涉及具体ID）
+
         :param AutoSearchSubCompany:  是否自动扫描所有子公司的基础信息。
         """
         if AutoSearchSubCompany:
@@ -152,6 +153,7 @@ class NewFlightPlanningSystem:
     def SearchTerminalInfo(self, AutoSearchSubCompany: bool = False):
         """
         搜集除T1（默认航站楼）以外的可用航站楼信息，以及所有航站的详情信息。
+
         :param AutoSearchSubCompany: 是否自动搜集子公司航站楼信息
         """
         if AutoSearchSubCompany:
@@ -242,6 +244,7 @@ class NewFlightPlanningSystem:
                      AutoSearchSubCompany: bool = False):
         """
         智能搜集企业的待排程航班信息，并汇总。
+
         :param ScanYellowFleet: 是否将黄色排程钮（排程未结束或已排程但未执行）加入待排班序列
         :param ScanRedFleet: 是否将红色排程钮（排班异常）加入待排班序列
         :param AutoSearchSubCompany:  是否自动扫描所有子公司的航机排程
@@ -263,6 +266,23 @@ class NewFlightPlanningSystem:
                     root.attrs.get('href', '').endswith('/0'):
                 # 扫描到航机
                 tClass = root.attrs.get('class')
+                """
+                映射关系：
+                cache_info -> 所属企业 --dict-> Fleets --dict-> 航机信息(By 航机注册号)
+                
+                内部信息及其含义：
+                IsNeedInit - 是否需要在排程前删除全部航程计划
+                Yellow/Red - 排程页是黄色（未执行）还是红色（错误）的按钮
+                url - 航机排程页URL
+                AirType - 航机的机型
+                CurrentTask - 当前任务，待机、调动或者正执行飞行任务
+                Location - 位置，或者当航机执行任务时的过程
+                Age - 机龄，浮点
+                Health - 健康度，浮点百分比（低于50%则强制停飞并检修）
+                MaintenanceRadio - 当前的维护比例，浮点百分比
+                Y/C/F - 经济舱/商务舱/头等舱的数字序列
+                [RegisterID] - 航机编号，比如B-ABC，作为外部Key关联信息
+                """
                 if 'btn-default' in tClass or (ScanRedFleet and 'btn-danger' in tClass) or \
                         (ScanYellowFleet and 'btn-warning' in tClass):
                     if 'btn-warning' in tClass:
