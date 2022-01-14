@@ -226,7 +226,8 @@ class GUIAutoFlightPlanningBaseOnExcel(wx.Frame):
         try:
             self.SetStatusText('开始导入')
             Thread(target=self.flightPlanningSystem.ReadExcelAndBuildConfig,
-                   args=(openpyxl.open(inputFileDialog.GetPath(), read_only=True),)).start()
+                   args=(openpyxl.open(inputFileDialog.GetPath(), read_only=True),
+                         self.callback_ReEnableUI_AfterReadExcel)).start()
             self.GenerateExcelTemplateButton.Disable()
             self.InputFlightPlanExcelButton.Disable()
             self.ExecuteInputtedFlightButton.Disable()
@@ -594,7 +595,8 @@ class FlightPlanningSystemBaseOnExcel(NewFlightPlanningSystem):
                         if currentSheet['B%d' % rowIndex].value is not None:
                             airline_dict['SrcAirport'] = str(currentSheet['B%d' % rowIndex].value).strip()
                         elif len(airlineOrder) == 0:
-                            location: str = self.cache_info.get(airCompany).get('Fleets').get('Location')
+                            location: str = self.cache_info.get(airCompany).get('Fleets').get(registerID).get(
+                                'Location')
                             if '->' in location:
                                 airline_dict['SrcAirport'] = location.split('->')[1]
                             else:
@@ -745,6 +747,7 @@ class FlightPlanningSystemBaseOnExcel(NewFlightPlanningSystem):
                 except Exception as e:
                     self.basic_ReportError('航机 %s 排班失败，尝试下一架中。\n错误代码：%s' % (registeredID, str(e)))
             self.basic_ShowProgress('企业 %s 的航机排程任务已结束。' % company)
+        self.__showInstantMsg('全部排程任务已结束！您现在可以退出程序了！')
 
     def __analyzeNoExistsStation(self):
         """以已收集的航站信息表为参照，解析未开设航站。"""

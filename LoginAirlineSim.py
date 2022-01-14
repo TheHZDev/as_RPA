@@ -37,10 +37,6 @@ try:
 except:
     Debug_Allow_HTTPS_Verify = True
 
-# 代理设置获取
-LocalProxier = {'http': '', 'https': ''}
-LocalProxier.update(urllib.request.getproxies())
-
 
 def LoginAirlineSim(ServerName: str, UserName: str, Passwd: str) -> Session:
     """
@@ -56,6 +52,8 @@ def LoginAirlineSim(ServerName: str, UserName: str, Passwd: str) -> Session:
     login_session = Session()
     login_session.headers[
         'User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:93.0) Gecko/20100101 Firefox/93.0'
+    LocalProxier = {'http': '', 'https': ''}
+    LocalProxier.update(urllib.request.getproxies())
     login_session.get(login_fin_url, timeout=10000, verify=Debug_Allow_HTTPS_Verify,
                       proxies=LocalProxier)  # 第一步，直接连接目标URL
     login_session.cookies['_sl_lp'] = quote(login_fin_url)
@@ -91,7 +89,9 @@ def LogoutAirlineSim(LogonSession: Session):
     target_url = 'https://sar.simulogics.games/api/sessions/' + \
                  LogonSession.cookies.get('as-sid').split('_')[0]
     LogonSession.headers['Authorization'] = 'Bearer ' + LogonSession.cookies.get('as-sid')
-    LogonSession.delete(target_url)  # 自动注销会话
+    LocalProxier = {'http': '', 'https': ''}
+    LocalProxier.update(urllib.request.getproxies())
+    LogonSession.delete(target_url, proxies=LocalProxier)  # 自动注销会话
     LogonSession.close()
 
 
