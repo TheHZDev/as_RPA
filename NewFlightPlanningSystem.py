@@ -146,6 +146,7 @@ class NewFlightPlanningSystem:
                 airport_list, service_list = CommonHTMLParser(GetClearHTML(NewAirlinePage, StrFilter),
                                                               GetBasicInfo, [airport_list, service_list])
             self.cache_info.get(CurrentCompany).update({'Airport': airport_list, 'Service': service_list})
+            self.basic_ShowProgress('企业 %s 的服务方案搜索完成。' % CurrentCompany)
             return
 
     def SearchTerminalInfo(self, AutoSearchSubCompany: bool = False):
@@ -215,12 +216,15 @@ class NewFlightPlanningSystem:
                 return True
 
         cache_stations_info = CommonHTMLParser(GetClearHTML(first_result), ParseHTML_GetStationsInfo)
+        self.basic_ShowProgress('在企业 %s 中发现了 %d 个航站。' % (CurrentCompany, len(cache_stations_info)))
         self.cache_info.get(CurrentCompany)['StationsInfo'] = cache_stations_info
         ExtraTerminal = []
         for station_code in cache_stations_info.keys():
             if cache_stations_info.get(station_code).get('Passengers')[2] != '0':
                 # 有自有处理容量，判定为需要识别航站楼
                 ExtraTerminal.append((station_code, cache_stations_info.get(station_code).get('Airport')))
+        if len(ExtraTerminal) > 0:
+            self.basic_ShowProgress('发现了 %d 个航站有额外的客运航站楼。请稍等。。。' % len(ExtraTerminal))
 
         # 获取了需要抓取航站楼的航站信息（这部分好像做得太UI友好型了）
 
@@ -233,9 +237,9 @@ class NewFlightPlanningSystem:
                 return True
 
         for station in ExtraTerminal:
-            self.retryGET(station[1])
             self.cache_info.get(CurrentCompany).get('StationsInfo').get(station[0])['ExtraTerminal'] = \
                 CommonHTMLParser(GetClearHTML(self.retryGET(station[1] + '?tabs=4')), ParseHTML_GetTerminalInfo, [])
+            self.basic_ShowProgress('对航站 %s 的额外航站楼搜索已完成。' % station[0])
             # 解析额外航站楼信息完成
 
     def SearchFleets(self, ScanYellowFleet: bool = False, ScanRedFleet: bool = False,
@@ -322,6 +326,8 @@ class NewFlightPlanningSystem:
 
         self.cache_info.get(CurrentCompany).get('Fleets').update(
             CommonHTMLParser(GetClearHTML(FleetsManager), parseHTML_GetFleetsInfo))
+        self.basic_ShowProgress('在企业 %s 中发现了 %d 个航机未排班。' % (CurrentCompany,
+                                                            len(self.cache_info.get(CurrentCompany).get('Fleets'))))
 
     # 系统执行区
     """

@@ -205,6 +205,7 @@ class GUIAutoFlightPlanningBaseOnExcel(wx.Frame):
             self.flightPlanningSystem.GenerateExcelTemplateAndOutput(savePath)
             wx.MessageDialog(self, '导出成功。', '信息', wx.ICON_INFORMATION | wx.OK).ShowModal()
         elif self.GenerateExcelTemplateButton.GetLabel() == self.const_GenerateFlightInfo:
+            self.UILogOutputText.Clear()
             self.SetStatusText('正在检索航班信息，请稍等。。。')
             # 状态快照处理
             self.generatedSearchOption = self.nowSearchOption.copy()
@@ -352,6 +353,7 @@ class FlightPlanningSystemBaseOnExcel(NewFlightPlanningSystem):
     def GenerateExcelTemplateAndOutput(self, SavePath: str):
         """
         导出排班模板数据并生成Excel文档。
+
         :param SavePath: 模板文件的保存路径
         """
         if len(self.cache_info) < 1:
