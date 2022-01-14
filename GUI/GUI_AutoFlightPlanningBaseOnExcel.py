@@ -202,8 +202,10 @@ class GUIAutoFlightPlanningBaseOnExcel(wx.Frame):
             if savePath is None or not savePath.endswith('.xlsx'):
                 wx.MessageDialog(self, '没有文件被导出。', '信息', wx.ICON_INFORMATION | wx.OK).ShowModal()
                 return
-            self.flightPlanningSystem.GenerateExcelTemplateAndOutput(savePath)
-            wx.MessageDialog(self, '导出成功。', '信息', wx.ICON_INFORMATION | wx.OK).ShowModal()
+            self.SetStatusText('正在导出模板。。。')
+            self.GenerateExcelTemplateButton.Disable()
+            Thread(target=self.flightPlanningSystem.GenerateExcelTemplateAndOutput,
+                   args=(savePath, self.callback_ReEnableUI_AfterGenerateTemplate)).start()
         elif self.GenerateExcelTemplateButton.GetLabel() == self.const_GenerateFlightInfo:
             self.UILogOutputText.Clear()
             self.SetStatusText('正在检索航班信息，请稍等。。。')
@@ -222,14 +224,15 @@ class GUIAutoFlightPlanningBaseOnExcel(wx.Frame):
                                         style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST)
         inputFileDialog.ShowModal()
         try:
-            tWorkbook = openpyxl.open(inputFileDialog.GetPath(), read_only=True)
-            self.flightPlanningSystem.ReadExcelAndBuildConfig(tWorkbook)
-            wx.MessageDialog(self, '排程信息导入成功！', '导入完成', wx.ICON_INFORMATION | wx.OK).ShowModal()
-            self.SetStatusText('导入成功！')
-            if len(self.flightPlanningSystem.InputtedFlightPlanData) > 0:
-                self.ExecuteInputtedFlightButton.Enable()
-            else:
-                self.ExecuteInputtedFlightButton.Disable()
+            self.SetStatusText('开始导入')
+            Thread(target=self.flightPlanningSystem.ReadExcelAndBuildConfig,
+                   args=(openpyxl.open(inputFileDialog.GetPath(), read_only=True),)).start()
+            self.GenerateExcelTemplateButton.Disable()
+            self.InputFlightPlanExcelButton.Disable()
+            self.ExecuteInputtedFlightButton.Disable()
+            self.IsSearchYellowFlight.Disable()
+            self.IsSearchSubCompany.Disable()
+            self.IsSearchRedFlight.Disable()
         except:
             wx.MessageDialog(self, '打开Excel文档出错！', '错误！', wx.ICON_ERROR | wx.OK).ShowModal()
         finally:
@@ -297,15 +300,33 @@ class GUIAutoFlightPlanningBaseOnExcel(wx.Frame):
         self.SetStatusText(logStr)
 
     def callback_PostError(self, errorText: str):
-        self.callback_ShowMessageDialog(errorText)
+        self.callback_ShowMessageDialog(errorText, '错误')
         # 弹窗告警 + 文本输出
         self.callback_LogOutput(errorText)
 
-    def callback_ShowMessageDialog(self, msgText: str):
-        wx.CallAfter(self.thread_ShowMessageDialog, msgText)
+    def callback_ShowMessageDialog(self, msgText: str, titleText: str = '告警'):
+        wx.CallAfter(self.thread_ShowMessageDialog, msgText, titleText)
 
-    def thread_ShowMessageDialog(self, msgText: str):
-        wx.MessageDialog(self, msgText, '告警', wx.ICON_INFORMATION | wx.OK).ShowModal()
+    def callback_ReEnableUI_AfterGenerateTemplate(self):
+        self.GenerateExcelTemplateButton.Enable()
+        self.SetStatusText('导出完成。')
+        self.callback_ShowMessageDialog('导出成功。', '信息')
+
+    def callback_ReEnableUI_AfterReadExcel(self, result: dict):
+        self.InputFlightPlanExcelButton.Enable()
+        self.GenerateExcelTemplateButton.Enable()
+        self.IsSearchSubCompany.Enable()
+        self.IsSearchRedFlight.Enable()
+        self.IsSearchYellowFlight.Enable()
+        self.callback_ShowMessageDialog('排程信息导入成功！', '导入完成')
+        self.SetStatusText('导入成功！')
+        if len(result) > 0:
+            self.ExecuteInputtedFlightButton.Enable()
+        else:
+            self.ExecuteInputtedFlightButton.Disable()
+
+    def thread_ShowMessageDialog(self, msgText: str, titleText: str):
+        wx.MessageDialog(self, msgText, titleText, wx.ICON_INFORMATION | wx.OK).ShowModal()
 
     # 规程定义区
     def checkGenerateButton(self):
@@ -350,11 +371,12 @@ class FlightPlanningSystemBaseOnExcel(NewFlightPlanningSystem):
     def PrepareExit(self):
         self.__flag_ExitProgram = True
 
-    def GenerateExcelTemplateAndOutput(self, SavePath: str):
+    def GenerateExcelTemplateAndOutput(self, SavePath: str, Callback_ReEnableUI=None):
         """
         导出排班模板数据并生成Excel文档。
 
         :param SavePath: 模板文件的保存路径
+        :param Callback_ReEnableUI: 重启UI的回调函数
         """
         if len(self.cache_info) < 1:
             self.basic_ReportError('没有收集任何信息，无需导出。')
@@ -372,6 +394,8 @@ class FlightPlanningSystemBaseOnExcel(NewFlightPlanningSystem):
         finally:
             self.basic_ShowProgress('排班模板已保存到%s中。' % SavePath)
             outputWorkbook.close()
+        if callable(Callback_ReEnableUI):
+            Callback_ReEnableUI()
 
     def __initHelpTextInExcel(self, newWorkbook: openpyxl.Workbook):
         """初始化帮助信息，并将服务方案示例写入当前表格"""
@@ -487,7 +511,7 @@ class FlightPlanningSystemBaseOnExcel(NewFlightPlanningSystem):
                 for columnID in range(len(column_range)):
                     new_table.column_dimensions[column_range[columnID]].width = column_length[columnID]
 
-    def ReadExcelAndBuildConfig(self, openedWorkBook: Workbook):
+    def ReadExcelAndBuildConfig(self, openedWorkBook: Workbook, Callback_ReEnableUI=None):
         """
         内部工作流程：
         1、读取缓存字典数据，确定各个公司的待排班航机列表、服务方案和航站数据。
@@ -660,7 +684,10 @@ class FlightPlanningSystemBaseOnExcel(NewFlightPlanningSystem):
         cache_readonly_AirCompanyInfo.clear()
         self.InputtedFlightPlanData.clear()
         self.InputtedFlightPlanData.update(result)
-        return result
+        if callable(Callback_ReEnableUI):
+            Callback_ReEnableUI(result)
+        else:
+            return result
 
     def Thread_FlightManager(self, AutoCleanUselessAirlineCode: bool = False, AutoSetUpNewStations: bool = False,
                              MinMaintenanceRadio: float = None, DefaultCommit: int = -1):
@@ -684,36 +711,39 @@ class FlightPlanningSystemBaseOnExcel(NewFlightPlanningSystem):
                 self.SetUpNewStation(cache_NoStations.get(company))
             flag_lowMaintainRadio = -1.0
             for registeredID in self.InputtedFlightPlanData.get(company).keys():
-                airlineManageURL = cache_Fleets.get(registeredID).get('url')
-                if len(self.runtime_cache_service) == 0 or len(self.runtime_cache_stations) == 0:
-                    self.PreCollectRuntimeAirlineBasicInfo(airlineManageURL)
-                if cache_Fleets.get(registeredID).get('IsNeedInit'):
-                    self.ExecuteAirlinePlan(4, airlineManageURL)  # 删除排程计划
-                lastResponse = self.retryGET(airlineManageURL)
-                for airline in self.InputtedFlightPlanData.get(company).get(registeredID):
-                    result = self.EstablishNewAirline(airlineManageURL, airline.get('SrcAirport'),
-                                                      airline.get('DstAirport'), airline.get('Price'),
-                                                      airline.get('Service'), airline.get('Week'),
-                                                      airline.get('SrcTerminal'), airline.get('DstTerminal'),
-                                                      airline.get('DepartureHour', -1),
-                                                      airline.get('DepartureMinute', -1),
-                                                      airline.get('Speed', 0), lastResponse)
-                    lastResponse = result.get('lastResponse')
-                    self.basic_ShowProgress('航机 %s 的航线（%s -> %s）已排程。' % (registeredID, airline.get('SrcAirport'),
-                                                                         airline.get('DstAirport')))
-                    if isinstance(MinMaintenanceRadio, float) or isinstance(MinMaintenanceRadio, int):
-                        if result.get('maintenance_ratio', 2 ** 32) <= MinMaintenanceRadio:
-                            flag_lowMaintainRadio = lastResponse.get('maintenance_ratio')
-                            break
-                    if self.__flag_ExitProgram:
-                        return
-                if flag_lowMaintainRadio > 1:
-                    self.__showInstantMsg('航机 %s 的维护比为 %.2f，排程已终止！' % (registeredID, flag_lowMaintainRadio))
-                elif isinstance(DefaultCommit, int) and 1 <= DefaultCommit <= 4:
-                    self.ExecuteAirlinePlan(DefaultCommit, airlineManageURL, lastResponse)
-                    self.basic_ShowProgress('航机 %s 的排班已完成，并正常提交。' % registeredID)
-                else:
-                    self.basic_ShowProgress('航机 %s 的排班已完成。' % registeredID)
+                try:
+                    airlineManageURL = cache_Fleets.get(registeredID).get('url')
+                    if len(self.runtime_cache_service) == 0 or len(self.runtime_cache_stations) == 0:
+                        self.PreCollectRuntimeAirlineBasicInfo(airlineManageURL)
+                    if cache_Fleets.get(registeredID).get('IsNeedInit'):
+                        self.ExecuteAirlinePlan(4, airlineManageURL)  # 删除排程计划
+                    lastResponse = self.retryGET(airlineManageURL)
+                    for airline in self.InputtedFlightPlanData.get(company).get(registeredID):
+                        result = self.EstablishNewAirline(airlineManageURL, airline.get('SrcAirport'),
+                                                          airline.get('DstAirport'), airline.get('Price'),
+                                                          airline.get('Service'), airline.get('Week'),
+                                                          airline.get('SrcTerminal'), airline.get('DstTerminal'),
+                                                          airline.get('DepartureHour', -1),
+                                                          airline.get('DepartureMinute', -1),
+                                                          airline.get('Speed', 0), lastResponse)
+                        lastResponse = result.get('lastResponse')
+                        self.basic_ShowProgress('航机 %s 的航线（%s -> %s）已排程。' % (registeredID, airline.get('SrcAirport'),
+                                                                             airline.get('DstAirport')))
+                        if isinstance(MinMaintenanceRadio, float) or isinstance(MinMaintenanceRadio, int):
+                            if result.get('maintenance_ratio', 2 ** 32) <= MinMaintenanceRadio:
+                                flag_lowMaintainRadio = lastResponse.get('maintenance_ratio')
+                                break
+                        if self.__flag_ExitProgram:
+                            return
+                    if flag_lowMaintainRadio > 1:
+                        self.__showInstantMsg('航机 %s 的维护比为 %.2f，排程已终止！' % (registeredID, flag_lowMaintainRadio))
+                    elif isinstance(DefaultCommit, int) and 1 <= DefaultCommit <= 4:
+                        self.ExecuteAirlinePlan(DefaultCommit, airlineManageURL, lastResponse)
+                        self.basic_ShowProgress('航机 %s 的排班已完成，并正常提交。' % registeredID)
+                    else:
+                        self.basic_ShowProgress('航机 %s 的排班已完成。' % registeredID)
+                except Exception as e:
+                    self.basic_ReportError('航机 %s 排班失败，尝试下一架中。\n错误代码：%s' % (registeredID, str(e)))
             self.basic_ShowProgress('企业 %s 的航机排程任务已结束。' % company)
 
     def __analyzeNoExistsStation(self):
