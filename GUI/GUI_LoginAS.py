@@ -133,7 +133,7 @@ class LoginAirlineSimDialog(wx.Dialog):
             # 保存密码
             if self.IsSavePwd.GetValue():
                 self.SavePwdToDB()
-            self.function_TransferSession(LoginSession, ServerName)
+            wx.CallAfter(self.function_TransferSession, LoginSession, ServerName)
             self.Close(True)
         except Exception as LoginException:
             wx.MessageDialog(self, str(LoginException), '登陆失败').ShowModal()
@@ -186,7 +186,7 @@ class LoginAirlineSimDialog(wx.Dialog):
                 self.InputUserName.SetValue(UserName)
                 self.InputPassword.SetValue(Passwd)
                 self.IsSavePwd.SetValue(True)
-        except:
+        finally:
             # 数据库字段读写失败不影响程序运行
             pass
 

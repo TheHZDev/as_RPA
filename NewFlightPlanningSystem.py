@@ -5,8 +5,6 @@ from requests import Session, Response
 
 from PublicCode import GetClearHTML, CommonHTMLParser, Localization
 
-LocalProxier = {'http': '', 'https': ''}
-LocalProxier.update(getproxies())
 try:
     from local_debug import flag_Debug
 
@@ -52,7 +50,7 @@ class NewFlightPlanningSystem:
         self.function_ReportError = callback_ReportError  # 错误汇报
         self.function_ShowProgressText = callback_ShowProgressText  # 信息披露
 
-    def __del__(self):
+    def __exit__(self, exc_type, exc_val, exc_tb):
         from LoginAirlineSim import LogoutAirlineSim
         LogoutAirlineSim(self.logonSession)
 
@@ -370,9 +368,17 @@ class NewFlightPlanningSystem:
         :param LastResponse: 上次使用的响应体
         :return:
         """
+        first_post_data = {}
         if not isinstance(LastResponse, Response):
             LastResponse = self.retryGET(AirLineURL)
         self.logonSession.headers['Referer'] = LastResponse.url
+
+        def findNameBySimpleNameInRuntimeCache(simpleName: str):
+            for station_name in self.runtime_cache_stations.keys():
+                if simpleName in str(station_name):
+                    return station_name
+            return ''
+
         if not ((isinstance(Price, int) and 50 <= Price <= 200) or (
                 isinstance(Price, str) and Price.isdigit() and 50 <= int(Price) <= 200)):
             self.basic_ReportError('价格系数不在50 ~ 200内，航线%s -> %s创建失败。' % (SrcAirport, DstAirport))
@@ -385,27 +391,27 @@ class NewFlightPlanningSystem:
         if not (isinstance(DepartureHour, int) and isinstance(DepartureMinute, int)):
             self.basic_ReportError('起飞时间必须是整数，航线%s -> %s创建失败。' % (SrcAirport, DstAirport))
             return
-        if (isinstance(WeekPlan, list) or isinstance(WeekPlan, tuple)) and WeekPlan.count(True) + WeekPlan.count(
-                False) == 7 and WeekPlan.count(True) > 0:
+        if (isinstance(WeekPlan, list) or isinstance(WeekPlan, tuple)) and (WeekPlan.count(True) + WeekPlan.count(
+                False) >= 7) and WeekPlan.count(True) > 0:
             WeekPlan = list(WeekPlan)
         else:
             self.basic_ReportError('周计划排班异常，航线%s -> %s创建失败。' % (SrcAirport, DstAirport))
             return
         if SrcAirport in self.runtime_cache_stations.keys():
-            SrcAirport = self.runtime_cache_stations.get(SrcAirport)
+            first_post_data['origin'] = self.runtime_cache_stations.get(SrcAirport)
         else:
-            tVar = self.GetAirportNameBySimpleName(SrcAirport)
+            tVar = findNameBySimpleNameInRuntimeCache(SrcAirport)
             if len(tVar) > 0 and tVar in self.runtime_cache_stations.keys():
-                SrcAirport = self.runtime_cache_stations.get(SrcAirport)
+                first_post_data['origin'] = self.runtime_cache_stations.get(tVar)
             else:
                 self.basic_ReportError('出发机场 %s 未被检索到，航线创建失败。' % SrcAirport)
                 return
         if DstAirport in self.runtime_cache_stations.keys():
-            DstAirport = self.runtime_cache_stations.get(DstAirport)
+            first_post_data['destination'] = self.runtime_cache_stations.get(DstAirport)
         else:
-            tVar = self.GetAirportNameBySimpleName(DstAirport)
+            tVar = findNameBySimpleNameInRuntimeCache(DstAirport)
             if len(tVar) > 0 and tVar in self.runtime_cache_stations.keys():
-                DstAirport = self.runtime_cache_stations.get(DstAirport)
+                first_post_data['destination'] = self.runtime_cache_stations.get(tVar)
             else:
                 self.basic_ReportError('目的机场 %s 未被检索到，航线创建失败。' % DstAirport)
                 return
@@ -439,11 +445,11 @@ class NewFlightPlanningSystem:
                     dataDict.update(CommonHTMLParser(root, parseNode_getSystemRecommendTime))
                 return True
 
-        first_post_data = CommonHTMLParser(GetClearHTML(LastResponse), parseHTML_getHiddenPara_first)
+        first_post_data.update(CommonHTMLParser(GetClearHTML(LastResponse), parseHTML_getHiddenPara_first))
         if DepartureHour > 0 and DepartureMinute > 0:
             first_post_data['departure:hours'] = str(DepartureHour)
             first_post_data['departure:minutes'] = str(DepartureMinute)
-        first_post_data.update({'origin': SrcAirport, 'destination': DstAirport, 'price': Price, 'service': Service})
+        first_post_data.update({'price': Price, 'service': Service})
         """
         以后可能的计划，增加中停地（需要在post_data里增加以下参数）
         "via-container:via" - 中停地机场的ID编号
@@ -583,7 +589,10 @@ class NewFlightPlanningSystem:
             return toXor
 
         if checkResult == WeekPlan:
+            flag_NeedAutoCheck = False
             self.basic_ShowProgress('时刻表检查通过，没有发现问题。')
+        else:
+            flag_NeedAutoCheck = True
         while checkResult != WeekPlan and try_groups_times < 6:
             """
             自动调程思路：
@@ -640,7 +649,7 @@ class NewFlightPlanningSystem:
                                            parseHTML_checkFlightSlots, WeekPlan)
         if try_groups_times >= 6 or try_individual_error:
             self.basic_ReportError('自动调程失败，请人工处理航班时刻表问题。')
-        else:
+        elif flag_NeedAutoCheck:
             self.basic_ShowProgress('自动调程成功，时刻表冲突已解决。')
         submitResponse = self.retryPOST(self.getCurrentRandom(weekPlanInfoPage) + second_post_url,
                                         data=post_data)
@@ -679,14 +688,14 @@ class NewFlightPlanningSystem:
         if not isinstance(lastResponse, Response):
             lastResponse = self.retryGET(airlinePlanURL)
 
-        def parseHTML_GetServiceInfo(root: bs4_Tag, dataDict: dict):
+        def parseHTML_GetStationsInfo(root: bs4_Tag, dataDict: dict):
             if root.name == 'select' and root.attrs.get('name', '') == 'origin':
                 for node in root.children:
                     if isinstance(node, bs4_Tag) and node.attrs.get('value', '') != '':
                         dataDict[node.getText().strip()] = node.attrs.get('value')
                 return True
 
-        def parseHTML_GetStationsInfo(root: bs4_Tag, dataDict: dict):
+        def parseHTML_GetServiceInfo(root: bs4_Tag, dataDict: dict):
             if root.name == 'select' and root.attrs.get('name', '') == 'service':
                 for node in root.children:
                     if isinstance(node, bs4_Tag) and node.attrs.get('value', '') != '':
@@ -790,7 +799,14 @@ class NewFlightPlanningSystem:
         post_data.update(CommonHTMLParser(GetClearHTML(LastResponse), parseHTML_GetHiddenPara))
         self.retryPOST(self.getCurrentRandom(LastResponse) + 'IFormSubmitListener-tabs-panel-visualFlightPlan-action',
                        data=post_data)
-        self.basic_ShowProgress('航班计划已提交。')
+        if UserSelect == 1:
+            self.basic_ShowProgress('航班计划已提交并立即执行。')
+        elif UserSelect == 2:
+            self.basic_ShowProgress('航班计划已提交，并延后三天。')
+        elif UserSelect == 3:
+            self.basic_ShowProgress('航班计划已锁定。')
+        else:
+            self.basic_ShowProgress('航班计划已被删除/清空。')
 
     # 系统辅助函数区
     def SwitchToSubCompany(self, SubCompanyName: str, tSession: Session = None):
@@ -800,7 +816,8 @@ class NewFlightPlanningSystem:
         :param tSession: 要切换的子公司的Session，仅使用在多会话模式中
         """
         if self.flag_no_sub_company or SubCompanyName not in self.cache_info.keys():
-            self.basic_ReportError('找不到要切换的子公司！')
+            # 无需切换子公司
+            # self.basic_ReportError('找不到要切换的子公司！')
             return
         if isinstance(tSession, Session):
             theSession = tSession
@@ -840,23 +857,6 @@ class NewFlightPlanningSystem:
         url_prefix = './' + urlparse(CurrentPage.url).path.split('/')[-1] + '?' + urlparse(CurrentPage.url).query
         return CurrentPage.url + CurrentPage.text.split('Wicket.Ajax.ajax({"u":"%s' % url_prefix)[1].split('.')[0] + '.'
 
-    def GetAirportNameBySimpleName(self, SimpleName: str):
-        """
-        根据指定的机场简写返回机场全称。
-        :param SimpleName: 机场简称
-        :return: 机场全称
-        """
-        try:
-            t1 = set()
-            for company in self.cache_info.keys():
-                t1.update(self.cache_info.get(company).get('StationsInfo', {}).keys())
-            for airportName in t1:
-                if SimpleName in airportName:
-                    t1.clear()
-                    return airportName
-        except:
-            return ''
-
     @staticmethod
     def xmlTablePreFilter(html: Response):
         """XML预处理函数（请勿直接调用）"""
@@ -870,6 +870,8 @@ class NewFlightPlanningSystem:
             theSession = self.logonSession
         for RetryID in range(RetryTimes):
             try:
+                LocalProxier = {'http': '', 'https': ''}
+                LocalProxier.update(getproxies())
                 if isinstance(headers, dict) and len(headers) > 0:
                     return theSession.get(url, headers=headers, timeout=120, verify=Debug_Allow_TLS_Verify,
                                           proxies=LocalProxier)
@@ -888,6 +890,8 @@ class NewFlightPlanningSystem:
             theSession = self.logonSession
         for RetryID in range(RetryTimes):
             try:
+                LocalProxier = {'http': '', 'https': ''}
+                LocalProxier.update(getproxies())
                 if isinstance(headers, dict) and len(headers) > 0:
                     return theSession.post(url, headers=headers, timeout=120, verify=Debug_Allow_TLS_Verify,
                                            proxies=LocalProxier, data=data, json=json)
@@ -902,8 +906,7 @@ class NewFlightPlanningSystem:
     @staticmethod
     def parseNode_GetHiddenPara(node: bs4_Tag, dataDict: dict):
         """当解析对象是一个Form节点的时候，可以直接用此函数获取内部特定隐藏节点值（应该是防机器人吧）"""
-        if node.name == 'input' and node.attrs.get('type', '') == 'hidden' and \
-                node.attrs.get('name', '').startswith('id_') and node.parent.name == 'div':
+        if node.name == 'input' and node.attrs.get('type', '') == 'hidden' and node.parent.name == 'div':
             dataDict.update({node.attrs.get('name'): ''})
             return True
 

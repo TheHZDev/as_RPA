@@ -190,9 +190,6 @@ class GUIAutoFlightPlanningBaseOnExcel(wx.Frame):
                                                                     self.callback_LogOutput,
                                                                     self.callback_ShowMessageDialog)
 
-    def __del__(self):
-        pass
-
     def GenerateExcelTemplateButtonOnButtonClick(self, event):
         if self.GenerateExcelTemplateButton.GetLabel() == self.const_OutputTemplate:
             from datetime import datetime
@@ -227,7 +224,11 @@ class GUIAutoFlightPlanningBaseOnExcel(wx.Frame):
             tWorkbook = openpyxl.open(inputFileDialog.GetPath(), read_only=True)
             self.flightPlanningSystem.ReadExcelAndBuildConfig(tWorkbook)
             wx.MessageDialog(self, '排程信息导入成功！', '导入完成', wx.ICON_INFORMATION | wx.OK).ShowModal()
-            self.ExecuteInputtedFlightButton.Enable()
+            self.SetStatusText('导入成功！')
+            if len(self.flightPlanningSystem.InputtedFlightPlanData) > 0:
+                self.ExecuteInputtedFlightButton.Enable()
+            else:
+                self.ExecuteInputtedFlightButton.Disable()
         except:
             wx.MessageDialog(self, '打开Excel文档出错！', '错误！', wx.ICON_ERROR | wx.OK).ShowModal()
         finally:
@@ -246,10 +247,12 @@ class GUIAutoFlightPlanningBaseOnExcel(wx.Frame):
             self.IsAutoCleanUselessAirlineCode.Disable()
             self.InputMinMaintenanceRadio.Disable()
             self.DefaultCommitAfterFlightPlanChoice.Disable()
+            MinMaintenanceRadio = None
+            if self.IsStopFlightPlanAfterLowMaintenanceRadio.GetValue():
+                MinMaintenanceRadio = float(self.InputMinMaintenanceRadio.GetValue())
             Thread(target=self.flightPlanningSystem.Thread_FlightManager,
                    args=(self.IsAutoCleanUselessAirlineCode.GetValue(), self.IsAutoSetUpNewStations.GetValue(),
-                         float(self.InputMinMaintenanceRadio.GetValue()),
-                         self.DefaultCommitAfterFlightPlanChoice.GetSelection())).start()
+                         MinMaintenanceRadio, self.DefaultCommitAfterFlightPlanChoice.GetSelection())).start()
             wx.MessageDialog(self, '航机自动排程已经启动，请在日志窗口查看详细日志。', '提示').Show()
         event.Skip()
 
@@ -322,6 +325,8 @@ class GUIAutoFlightPlanningBaseOnExcel(wx.Frame):
                 self.InputFlightPlanExcelButton.Enable()
                 if len(self.flightPlanningSystem.InputtedFlightPlanData) > 0:
                     self.ExecuteInputtedFlightButton.Enable()
+                self.SetStatusText('已完成。')
+                wx.MessageDialog(self, '检索排程信息完成！', '完成', wx.ICON_INFORMATION | wx.OK).ShowModal()
             self.GenerateExcelTemplateButton.Enable()
             self.IsSearchSubCompany.Enable()
             self.IsSearchRedFlight.Enable()
@@ -518,7 +523,7 @@ class FlightPlanningSystemBaseOnExcel(NewFlightPlanningSystem):
             currentCompany: dict = cache_readonly_AirCompanyInfo.get(airCompany)
             stationsInfo: dict = currentCompany.get('Stations')
             serviceList: list = currentCompany.get('Service')
-            cache_sheetsName: list = openedWorkBook.sheetnames()
+            cache_sheetsName: list = openedWorkBook.sheetnames
             cache_airlinesInfo = {}
             for registerID in currentCompany.get('FleetIndex'):
                 if registerID in cache_sheetsName:
@@ -553,7 +558,7 @@ class FlightPlanningSystemBaseOnExcel(NewFlightPlanningSystem):
                             try:
                                 departureTimes = departureTime.split(':')
                                 departureHour = int(departureTimes[0])
-                                departureMinute = int(departureTime[1])
+                                departureMinute = int(departureTimes[1])
                                 if 0 <= departureHour < 24 and 0 <= departureMinute < 60:
                                     airline_dict.update({'DepartureHour': departureHour,
                                                          'DepartureMinute': departureMinute})
@@ -611,11 +616,11 @@ class FlightPlanningSystemBaseOnExcel(NewFlightPlanningSystem):
                             service_value = str(currentSheet['G%d' % rowIndex].value).strip()
                             if service_value in serviceList:
                                 airline_dict['Service'] = service_value
-                            elif len(airlineOrder) == 0:
-                                airline_dict['Service'] = serviceList[-1]
-                                self.basic_ReportError('工作表%s发生服务方案未指定异常，服务方案已重置为%s。' % (registerID, serviceList[-1]))
-                            else:
-                                airline_dict['Service'] = airlineOrder[-1].get('Price')
+                        elif len(airlineOrder) == 0:
+                            airline_dict['Service'] = serviceList[-1]
+                            self.basic_ReportError('工作表%s发生服务方案未指定异常，服务方案已重置为%s。' % (registerID, serviceList[-1]))
+                        else:
+                            airline_dict['Service'] = airlineOrder[-1].get('Service')
                         # 服务方案 OK
                         if currentSheet['H%d' % rowIndex].value is not None:
                             speed_value = str(currentSheet['H%d' % rowIndex].value).strip()
@@ -624,18 +629,24 @@ class FlightPlanningSystemBaseOnExcel(NewFlightPlanningSystem):
                             elif speed_value == '减速':
                                 airline_dict['Speed'] = -1
                         # 速度 OK
-                        if currentSheet['H%d' % rowIndex].value is not None:
+                        if currentSheet['I%d' % rowIndex].value is not None:
                             try:
                                 week_value = str(currentSheet['I%d' % rowIndex].value).strip()
                                 weekDay = [False] * 7
                                 for day in list(week_value):
                                     if day in list('1234567'):
                                         weekDay['1234567'.index(day)] = True
+                                if weekDay == [False] * 7:
+                                    weekDay = [True] * 7
+                                    self.__advance_ReportExcelError(registerID, ('I', rowIndex),
+                                                                    '周排班计划不正确！已重置为一周全排。')
                                 airline_dict['Week'] = weekDay
                             except:
-                                self.__advance_ReportExcelError(registerID, ('H', rowIndex),
+                                self.__advance_ReportExcelError(registerID, ('I', rowIndex),
                                                                 '周排班计划不正确！已重置为一周全排。')
                                 airline_dict['Week'] = [True] * 7
+                        else:
+                            airline_dict['Week'] = airlineOrder[-1].get('Week')
                         # 周计划排班 OK
                         # ALL OK
                         airlineOrder.append(airline_dict)
@@ -664,12 +675,16 @@ class FlightPlanningSystemBaseOnExcel(NewFlightPlanningSystem):
         cache_NoStations = self.__analyzeNoExistsStation()
         for company in self.InputtedFlightPlanData.keys():
             self.SwitchToSubCompany(company)
+            self.runtime_cache_service.clear()
+            self.runtime_cache_stations.clear()
             cache_Fleets: dict = self.cache_info.get(company).get('Fleets')
             if AutoSetUpNewStations and company in cache_NoStations.keys():
                 self.SetUpNewStation(cache_NoStations.get(company))
-            flag_lowMaintainRadio = -1
+            flag_lowMaintainRadio = -1.0
             for registeredID in self.InputtedFlightPlanData.get(company).keys():
                 airlineManageURL = cache_Fleets.get(registeredID).get('url')
+                if len(self.runtime_cache_service) == 0 or len(self.runtime_cache_stations) == 0:
+                    self.PreCollectRuntimeAirlineBasicInfo(airlineManageURL)
                 if cache_Fleets.get(registeredID).get('IsNeedInit'):
                     self.ExecuteAirlinePlan(4, airlineManageURL)  # 删除排程计划
                 lastResponse = self.retryGET(airlineManageURL)
@@ -682,10 +697,14 @@ class FlightPlanningSystemBaseOnExcel(NewFlightPlanningSystem):
                                                       airline.get('DepartureMinute', -1),
                                                       airline.get('Speed', 0), lastResponse)
                     lastResponse = result.get('lastResponse')
+                    self.basic_ShowProgress('航机 %s 的航线（%s -> %s）已排程。' % (registeredID, airline.get('SrcAirport'),
+                                                                         airline.get('DstAirport')))
                     if isinstance(MinMaintenanceRadio, float) or isinstance(MinMaintenanceRadio, int):
-                        if lastResponse.get('maintenance_ratio', 2 ** 32) <= MinMaintenanceRadio:
+                        if result.get('maintenance_ratio', 2 ** 32) <= MinMaintenanceRadio:
                             flag_lowMaintainRadio = lastResponse.get('maintenance_ratio')
                             break
+                    if self.__flag_ExitProgram:
+                        return
                 if flag_lowMaintainRadio > 1:
                     self.__showInstantMsg('航机 %s 的维护比为 %.2f，排程已终止！' % (registeredID, flag_lowMaintainRadio))
                 elif isinstance(DefaultCommit, int) and 1 <= DefaultCommit <= 4:
@@ -694,7 +713,6 @@ class FlightPlanningSystemBaseOnExcel(NewFlightPlanningSystem):
                 else:
                     self.basic_ShowProgress('航机 %s 的排班已完成。' % registeredID)
             self.basic_ShowProgress('企业 %s 的航机排程任务已结束。' % company)
-        pass
 
     def __analyzeNoExistsStation(self):
         """以已收集的航站信息表为参照，解析未开设航站。"""
@@ -739,12 +757,22 @@ class FlightPlanningSystemBaseOnExcel(NewFlightPlanningSystem):
 
 def callback_afterLogonInit(logonSession, serverName):
     """对话框后，才初始化主窗口"""
-    global mainWin
+    global mainWin, mainSession
+    preDialog.Destroy()
     mainWin = GUIAutoFlightPlanningBaseOnExcel(logonSession, serverName)
+    mainSession = logonSession
+    mainWin.Show()
 
 
 if __name__ == '__main__':
     mainAPP = wx.App()
     mainWin = None
-    LoginAirlineSimDialog(None, Public_ConfigDB_Path, callback_afterLogonInit).ShowModal()
-    mainAPP.MainLoop()
+    mainSession = None
+    try:
+        preDialog = LoginAirlineSimDialog(None, Public_ConfigDB_Path, callback_afterLogonInit)
+        preDialog.Show()
+        mainAPP.MainLoop()
+    finally:
+        from LoginAirlineSim import LogoutAirlineSim
+
+        LogoutAirlineSim(mainSession)
