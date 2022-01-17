@@ -217,7 +217,7 @@ class GUIAutoFlightPlanningBaseOnExcel(wx.Frame):
             self.IsSearchYellowFlight.Disable()
             self.InputFlightPlanExcelButton.Disable()
             self.ExecuteInputtedFlightButton.Disable()
-            Thread(target=self.thread_CollectAirlineInfo).start()
+            Thread(target=self.thread_CollectAirlineInfo, daemon=True).start()
 
     def InputFlightPlanExcelButtonOnButtonClick(self, event):
         inputFileDialog = wx.FileDialog(self, '导入排程文件', wildcard='Excel 文档|*.xlsx',
@@ -225,7 +225,7 @@ class GUIAutoFlightPlanningBaseOnExcel(wx.Frame):
         inputFileDialog.ShowModal()
         try:
             self.SetStatusText('开始导入')
-            Thread(target=self.flightPlanningSystem.ReadExcelAndBuildConfig,
+            Thread(target=self.flightPlanningSystem.ReadExcelAndBuildConfig, daemon=True,
                    args=(openpyxl.open(inputFileDialog.GetPath(), read_only=True),
                          self.callback_ReEnableUI_AfterReadExcel)).start()
             self.GenerateExcelTemplateButton.Disable()
@@ -255,7 +255,7 @@ class GUIAutoFlightPlanningBaseOnExcel(wx.Frame):
             MinMaintenanceRadio = None
             if self.IsStopFlightPlanAfterLowMaintenanceRadio.GetValue():
                 MinMaintenanceRadio = float(self.InputMinMaintenanceRadio.GetValue())
-            Thread(target=self.flightPlanningSystem.Thread_FlightManager,
+            Thread(target=self.flightPlanningSystem.Thread_FlightManager, daemon=True,
                    args=(self.IsAutoCleanUselessAirlineCode.GetValue(), self.IsAutoSetUpNewStations.GetValue(),
                          MinMaintenanceRadio, self.DefaultCommitAfterFlightPlanChoice.GetSelection())).start()
             wx.MessageDialog(self, '航机自动排程已经启动，请在日志窗口查看详细日志。', '提示').Show()
@@ -539,8 +539,7 @@ class FlightPlanningSystemBaseOnExcel(NewFlightPlanningSystem):
         cache_readonly_AirCompanyInfo = {}
         result = {}
         for airCompany in self.cache_info.keys():
-            if 'Fleets' in self.cache_info.get(airCompany).keys() or len(
-                    self.cache_info.get(airCompany).get('Fleets')) < 2:
+            if 'Fleets' in self.cache_info.get(airCompany).keys():
                 line_dict = {'FleetIndex': self.cache_info.get(airCompany).get('Fleets').keys(),
                              'Stations': self.cache_info.get(airCompany).get('StationsInfo').copy(),
                              'Service': self.cache_info.get(airCompany).get('Service').copy()}
@@ -809,5 +808,7 @@ if __name__ == '__main__':
         mainAPP.MainLoop()
     finally:
         from LoginAirlineSim import LogoutAirlineSim
+        from sys import exit
 
         LogoutAirlineSim(mainSession)
+        exit(0)
