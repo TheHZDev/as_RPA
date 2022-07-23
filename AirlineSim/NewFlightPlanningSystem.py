@@ -3,7 +3,7 @@ from urllib.request import getproxies
 from bs4.element import Tag as bs4_Tag
 from requests import Session, Response
 
-from PublicCode import GetClearHTML, CommonHTMLParser, Localization
+from .PublicCode import GetClearHTML, CommonHTMLParser, Localization
 
 try:
     from local_debug import flag_Debug
@@ -24,6 +24,7 @@ class NewFlightPlanningSystem:
                  callback_ReportError=None, callback_ShowProgressText=None):
         """
         航机排班系统（新版），功能更加精细
+
         :param UserName: 登陆服务器的用户名
         :param Passwd: 登陆服务器的密码
         :param ServerName: 服务器名称
@@ -31,11 +32,11 @@ class NewFlightPlanningSystem:
         :param callback_ReportError: 回调函数，用于向调用方友好地提交中文错误信息
         :param callback_ShowProgressText: 回调函数，用于向调用方传递友好的提示信息
         """
-        from LoginAirlineSim import getBaseURL
+        from .LoginAirlineSim import getBaseURL
         if isinstance(LogonSession, Session):
             self.logonSession = LogonSession
         elif len(UserName) * len(Passwd) > 0:
-            from LoginAirlineSim import LoginAirlineSim
+            from .LoginAirlineSim import LoginAirlineSim
             self.logonSession = LoginAirlineSim(ServerName, UserName, Passwd)
         else:
             raise Exception('无法启动排班管理器！')
@@ -51,7 +52,7 @@ class NewFlightPlanningSystem:
         self.function_ShowProgressText = callback_ShowProgressText  # 信息披露
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        from LoginAirlineSim import LogoutAirlineSim
+        from .LoginAirlineSim import LogoutAirlineSim
         LogoutAirlineSim(self.logonSession)
 
     # 信息函数区
@@ -359,7 +360,8 @@ class NewFlightPlanningSystem:
                             WeekPlan: list, SrcTerminal: str = None, DstTerminal: str = None, DepartureHour: int = -1,
                             DepartureMinute: int = -1, SimpleSpeedConfig: int = 0, LastResponse: Response = None):
         """
-        根据参数建立新航班，航班号为自动获取（效率优先），可处理错误时刻问题。\n
+        根据参数建立新航班，航班号为自动获取（效率优先），可处理错误时刻问题。
+
         :param AirLineURL: 待排班的目标航机的排班URL页
         :param SrcAirport: 出发机场，可以是IATA代号
         :param DstAirport: 目的机场，可以是IATA代号
@@ -452,7 +454,7 @@ class NewFlightPlanningSystem:
                 return True
 
         first_post_data.update(CommonHTMLParser(GetClearHTML(LastResponse), parseHTML_getHiddenPara_first))
-        if DepartureHour > 0 and DepartureMinute > 0:
+        if 0 <= DepartureHour <= 24 and 0 <= DepartureMinute <= 60:
             first_post_data['departure:hours'] = str(DepartureHour)
             first_post_data['departure:minutes'] = str(DepartureMinute)
         first_post_data.update({'price': Price, 'service': Service})
@@ -483,6 +485,7 @@ class NewFlightPlanningSystem:
         first_post_data.update(CommonHTMLParser(
             GetClearHTML(newFlightPage, lambda x: x.text.split(']]></component>')[0].split('<![CDATA[')[-1]),
             parseHTML_getNewFlightNumber))
+        self.basic_ShowProgress(f'新的航班号码：{first_post_data.get("number:number_body:input")}')
         # 航班号取得
         weekPlanInfoPage = self.retryPOST(self.getCurrentRandom(LastResponse) + first_post_url, data=first_post_data)
         second_post_url = 'IFormSubmitListener-tabs-panel-newFlight-flightPlanning-flight.planning.form'
@@ -715,6 +718,7 @@ class NewFlightPlanningSystem:
     def SetUpNewStation(self, NewStationNames: list):
         """
         获取信息并开设新航站，新航站名称推荐使用IATA名称
+
         :param NewStationNames: 新航站名称（一个或多个）
         """
         if isinstance(NewStationNames, str):
@@ -784,6 +788,7 @@ class NewFlightPlanningSystem:
         2 - 延迟三天执行航班计划
         3 - 锁定航班计划
         4 - 清空航班计划
+
         :param UserSelect: 执行的用户选择
         :param AirplaneURL: 航机排班界面的URL
         :param LastResponse: 上次使用的响应包，通常是建立新航线后留下的

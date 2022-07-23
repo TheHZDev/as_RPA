@@ -5,10 +5,9 @@ import wx
 from openpyxl.workbook.workbook import Workbook, Worksheet
 from requests import Session
 
-from GUI_LoginAS import LoginAirlineSimDialog
-from NewFlightPlanningSystem import NewFlightPlanningSystem
-from PublicCode import TranslateCHTtoCHS as Translate
-from PublicCode import openpyxl_ConfigAlignment, Public_ConfigDB_Path
+from AirlineSim.NewFlightPlanningSystem import NewFlightPlanningSystem
+from AirlineSim.PublicCode import TranslateCHTtoCHS as Translate
+from AirlineSim.PublicCode import openpyxl_ConfigAlignment, Public_ConfigDB_Path
 
 
 class GUIAutoFlightPlanningBaseOnExcel(wx.Frame):
@@ -788,27 +787,3 @@ class FlightPlanningSystemBaseOnExcel(NewFlightPlanningSystem):
         except:
             pass
 
-
-def callback_afterLogonInit(logonSession, serverName):
-    """对话框后，才初始化主窗口"""
-    global mainWin, mainSession
-    preDialog.Destroy()
-    mainWin = GUIAutoFlightPlanningBaseOnExcel(logonSession, serverName)
-    mainSession = logonSession
-    mainWin.Show()
-
-
-if __name__ == '__main__':
-    mainAPP = wx.App()
-    mainWin = None
-    mainSession = None
-    try:
-        preDialog = LoginAirlineSimDialog(None, Public_ConfigDB_Path, callback_afterLogonInit)
-        preDialog.Show()
-        mainAPP.MainLoop()
-    finally:
-        from LoginAirlineSim import LogoutAirlineSim
-        from sys import exit
-
-        LogoutAirlineSim(mainSession)
-        exit(0)

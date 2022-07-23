@@ -41,6 +41,7 @@ except:
 def LoginAirlineSim(ServerName: str, UserName: str, Passwd: str) -> Session:
     """
     登陆AS账户，服务器仅用于伪造正常登陆流程。
+
     :param ServerName: 服务器名称。
     :param UserName: 用户名
     :param Passwd: 密码
@@ -91,7 +92,7 @@ def LogoutAirlineSim(LogonSession: Session):
     LogonSession.headers['Authorization'] = 'Bearer ' + LogonSession.cookies.get('as-sid')
     LocalProxier = {'http': '', 'https': ''}
     LocalProxier.update(urllib.request.getproxies())
-    LogonSession.delete(target_url, proxies=LocalProxier)  # 自动注销会话
+    LogonSession.delete(target_url, proxies=LocalProxier, verify=Debug_Allow_HTTPS_Verify)  # 自动注销会话
     LogonSession.close()
 
 

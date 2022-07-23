@@ -4,7 +4,7 @@ from threading import Thread
 
 import wx
 
-from LoginAirlineSim import ServerMap, LoginAirlineSim
+from AirlineSim.LoginAirlineSim import ServerMap, LoginAirlineSim
 
 
 class LoginAirlineSimDialog(wx.Dialog):
