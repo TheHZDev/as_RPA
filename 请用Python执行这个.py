@@ -6,6 +6,7 @@ from GUI.GUI_LoginAS import LoginAirlineSimDialog
 
 urllib3.disable_warnings()
 
+
 def callback_afterLogonInit(logonSession, serverName):
     """对话框后，才初始化主窗口"""
     global mainWin, mainSession
