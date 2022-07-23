@@ -8,7 +8,7 @@ import requests
 from bs4 import BeautifulSoup
 from bs4.element import Tag as bs4_Tag
 
-from PublicCode import CommonHTMLParser, GetClearHTML
+from .PublicCode import CommonHTMLParser, GetClearHTML
 
 max_thread_workers = 5
 basic_header = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:93.0) Gecko/20100101 Firefox/93.0'}
@@ -327,7 +327,7 @@ class CalcAirplaneProperty:
             t_sql.close()
             return
         if isinstance(self.login_Passwd, str) and isinstance(self.login_UserName, str):
-            from LoginAirlineSim import LoginAirlineSim
+            from .LoginAirlineSim import LoginAirlineSim
             logonSession = LoginAirlineSim(self.ServerName, self.login_UserName, self.login_Passwd)
             first_url = self.baseURL + '/app/aircraft/manufacturers'  # 从制造商页面爬取数据
             second_url_list = {}
@@ -378,7 +378,7 @@ class CalcAirplaneProperty:
                 t_sql.commit()
                 self.callback_outputLog('已完成对航机 %s 家族的爬取。' % line)
             t_sql.close()
-            from LoginAirlineSim import LogoutAirlineSim
+            from .LoginAirlineSim import LogoutAirlineSim
             LogoutAirlineSim(logonSession)
         self.flag_price_ok = True
 
@@ -567,9 +567,10 @@ class GetAirportInfo:
     def __init__(self, ServerName: str):
         """
         一个用来抓取机场信息的小工具，没有任何其他的计算功能
+
         :param ServerName: 服务器名称
         """
-        from LoginAirlineSim import ServerMap, getBaseURL
+        from .LoginAirlineSim import ServerMap, getBaseURL
         from urllib.parse import urlparse
         if ServerName not in ServerMap.keys():
             raise Exception('无效的服务器名称。')
@@ -789,7 +790,7 @@ class GetBusinessStatistics:
         :param ServerName: 服务器名称，请参考LoginAirlineSim.ServerMap
         :param callback_InitOK: 回调函数，无参，将在初始化线程执行完毕前调用
         """
-        from LoginAirlineSim import ServerMap, getBaseURL
+        from .LoginAirlineSim import ServerMap, getBaseURL
 
         if ServerName not in ServerMap.keys():
             raise Exception('必须指定正确的服务器名称！')
@@ -978,7 +979,7 @@ class GetBusinessStatistics:
 
     def __thread_InitBasicInfo(self):
         """初始化基础信息收集，但同时也会收集全局总旅客量信息和全局总货物运输信息。"""
-        from PublicCode import Continent_UI, Countries_UI
+        from .PublicCode import Continent_UI, Countries_UI
         for tStr in Continent_UI.keys():
             self.map_english_to_chinese[Continent_UI.get(tStr)] = tStr
         for tStr in Countries_UI.keys():
