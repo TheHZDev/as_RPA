@@ -113,6 +113,7 @@ def openpyxl_ConfigAlignment(ToConfigWorksheet: Worksheet, CellRange: str, Horiz
                              Vertical: str = "center"):
     """
     表格格式批量设置函数，仅考虑居中对齐之类的格式。
+
     :param ToConfigWorksheet: 待设置的表格
     :param CellRange: 单元格范围
     :param Horizontal: 横向对齐方式

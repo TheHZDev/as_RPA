@@ -1,7 +1,10 @@
+import urllib3
 import wx
-from GUI.GUI_LoginAS import LoginAirlineSimDialog
-from GUI.GUI_AutoFlightPlanningBaseOnExcel import GUIAutoFlightPlanningBaseOnExcel, Public_ConfigDB_Path
 
+from GUI.GUI_AutoFlightPlanningBaseOnExcel import GUIAutoFlightPlanningBaseOnExcel, Public_ConfigDB_Path
+from GUI.GUI_LoginAS import LoginAirlineSimDialog
+
+urllib3.disable_warnings()
 
 def callback_afterLogonInit(logonSession, serverName):
     """对话框后，才初始化主窗口"""

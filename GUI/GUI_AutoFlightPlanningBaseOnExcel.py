@@ -7,7 +7,7 @@ from requests import Session
 
 from AirlineSim.NewFlightPlanningSystem import NewFlightPlanningSystem
 from AirlineSim.PublicCode import TranslateCHTtoCHS as Translate
-from AirlineSim.PublicCode import openpyxl_ConfigAlignment, Public_ConfigDB_Path
+from AirlineSim.PublicCode import openpyxl_ConfigAlignment
 
 
 class GUIAutoFlightPlanningBaseOnExcel(wx.Frame):
@@ -422,18 +422,21 @@ class FlightPlanningSystemBaseOnExcel(NewFlightPlanningSystem):
         for subCompany in self.cache_info.keys():
             if 'Service' in self.cache_info.get(subCompany).keys():
                 service_list.append(['', '', subCompany] + self.cache_info.get(subCompany).get('Service'))
-        first_sheet.append(('', '', '企业名', '服务方案参考（每格为一个方案名）'))
-        merge_width = max([len(i) - 3 for i in service_list])
-        if merge_width > 1:
-            first_sheet.merge_cells('D23:%s23' % chr(67 + merge_width))
-        for columnID in range(merge_width + 1):
-            cache_column = []
-            for sub_service_list in service_list:
-                if columnID + 2 < len(sub_service_list):
-                    cache_column.append(len(sub_service_list[columnID + 2]))
-            first_sheet.column_dimensions[chr(67 + columnID)].width = max(cache_column) + 2
-        for line in service_list:
-            first_sheet.append(line)
+        if len(service_list) > 0:
+            first_sheet.append(('', '', '企业名', '服务方案参考（每格为一个方案名）'))
+            merge_width = max([len(i) - 3 for i in service_list])
+            if merge_width > 1:
+                first_sheet.merge_cells('D23:%s23' % chr(67 + merge_width))
+            for columnID in range(merge_width + 1):
+                cache_column = []
+                for sub_service_list in service_list:
+                    if columnID + 2 < len(sub_service_list):
+                        cache_column.append(len(sub_service_list[columnID + 2]))
+                first_sheet.column_dimensions[chr(67 + columnID)].width = max(cache_column) + 2
+            for line in service_list:
+                first_sheet.append(line)
+        else:
+            self.basic_ShowProgress('告警：找不到服务方案！可能是由于没有未排班的航班！')
 
     def __initStationsInfoInExcel(self, newWorkBook: Workbook):
         """在排班模板中插入子公司的航站信息表"""
