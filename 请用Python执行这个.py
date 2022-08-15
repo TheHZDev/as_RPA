@@ -1,7 +1,8 @@
 import urllib3
 import wx
 
-from GUI.GUI_AutoFlightPlanningBaseOnExcel import GUIAutoFlightPlanningBaseOnExcel, Public_ConfigDB_Path
+from AirlineSim.PublicCode import Public_ConfigDB_Path
+from GUI.GUI_AutoFlightPlanningBaseOnExcel import GUIAutoFlightPlanningBaseOnExcel
 from GUI.GUI_LoginAS import LoginAirlineSimDialog
 
 urllib3.disable_warnings()
