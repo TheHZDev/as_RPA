@@ -261,11 +261,25 @@ class NewFlightPlanningSystem:
         fleets_url = self.baseURL + '/app/fleets'
         FleetsManager = self.retryGET(fleets_url)
         CurrentCompany = self.GetCurrentCompanyName(FleetsManager)
+        useSubSearchEngine = False
         if 'Fleets' not in self.cache_info.get(CurrentCompany).keys():
             self.cache_info.get(CurrentCompany)['Fleets'] = {}
 
+        def parseHTML_GetFleetGroupsInfo(root: bs4_Tag, dataDict: dict):
+            if root.name == 'a':
+                a_href = root.attrs.get('href', '')
+                if a_href.startswith('./fleets/') and 'aircraft' not in a_href:
+                    for unit in root.children:
+                        if isinstance(unit, bs4_Tag) and unit.name == 'span':
+                            dataDict[unit.text] = self.baseURL + '/app' + a_href.split('.')[1]
+                            return True
+
         def parseHTML_GetFleetsInfo(root: bs4_Tag, dataDict: dict):
-            if root.name == 'a' and '/fleets/aircraft/' in root.attrs.get('href', '') and \
+            if useSubSearchEngine:
+                searchStr = '/aircraft/'
+            else:
+                searchStr = '/fleets/aircraft/'
+            if root.name == 'a' and searchStr in root.attrs.get('href', '') and \
                     root.attrs.get('href', '').endswith('/0'):
                 # 扫描到航机
                 tClass = root.attrs.get('class')
@@ -294,7 +308,10 @@ class NewFlightPlanningSystem:
                         line_info = {'IsNeedInit': True, 'Yellow/Red': False}  # 排班前需要执行清除策略
                     else:
                         line_info = {'IsNeedInit': False, 'Yellow/Red': False}
-                    line_info['url'] = self.baseURL + '/app' + root.attrs.get('href')[1:]
+                    if useSubSearchEngine:
+                        line_info['url'] = self.baseURL + '/app/fleets' + root.attrs.get('href')[1:]
+                    else:
+                        line_info['url'] = self.baseURL + '/app' + root.attrs.get('href')[1:]
                     airplane_unit = root.parent.parent.parent.parent
                     RegisterID = airplane_unit.contents[1].contents[0].getText()
                     line_info['AirType'] = airplane_unit.contents[2].contents[0].getText()
@@ -325,8 +342,19 @@ class NewFlightPlanningSystem:
                     dataDict[RegisterID] = line_info
                 return True
 
-        self.cache_info.get(CurrentCompany).get('Fleets').update(
-            CommonHTMLParser(GetClearHTML(FleetsManager), parseHTML_GetFleetsInfo))
+        # 220815：进行分组搜索
+        fleetManagerGroups = CommonHTMLParser(GetClearHTML(FleetsManager), parseHTML_GetFleetGroupsInfo)
+        useSubSearchEngine = len(fleetManagerGroups) > 1
+        if useSubSearchEngine:
+            self.basic_ShowProgress(f'在企业 {CurrentCompany} 中发现了 {len(fleetManagerGroups)} 个航机组，正在搜索。')
+            for fleetGroup in fleetManagerGroups:
+                self.basic_ShowProgress(f'正在搜索 {fleetGroup} 组。')
+                self.cache_info.get(CurrentCompany).get('Fleets').update(
+                    CommonHTMLParser(GetClearHTML(self.retryGET(fleetManagerGroups.get(fleetGroup))),
+                                     parseHTML_GetFleetsInfo))
+        else:
+            self.cache_info.get(CurrentCompany).get('Fleets').update(
+                CommonHTMLParser(GetClearHTML(FleetsManager), parseHTML_GetFleetsInfo))
         self.basic_ShowProgress('在企业 %s 中发现了 %d 个航机未排班。' % (CurrentCompany,
                                                             len(self.cache_info.get(CurrentCompany).get('Fleets'))))
 
@@ -823,6 +851,7 @@ class NewFlightPlanningSystem:
     def SwitchToSubCompany(self, SubCompanyName: str, tSession: Session = None):
         """
         切换子公司，这主要是通过改写Cookie来实现的。
+
         :param SubCompanyName: 要切换的子公司名称
         :param tSession: 要切换的子公司的Session，仅使用在多会话模式中
         """
@@ -930,6 +959,7 @@ class NewFlightPlanningSystem:
     def basic_ReportError(self, ErrInfo: str):
         """
         使用可能的错误报告函数进行回调报告。
+
         :param ErrInfo: 错误信息字符串
         """
         try:
@@ -939,6 +969,11 @@ class NewFlightPlanningSystem:
             pass
 
     def basic_ShowProgress(self, ProgressInfo: str):
+        """
+        显示进度消息指示。
+
+        :param ProgressInfo: 进度消息
+        """
         try:
             if callable(self.function_ShowProgressText):
                 self.function_ShowProgressText(ProgressInfo)

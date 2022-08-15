@@ -11,7 +11,8 @@ class LoginAirlineSimDialog(wx.Dialog):
 
     def __init__(self, parent, DB_Path: str, callback_TransferSession):
         """
-        AS登陆对话框，提供基本的保存密码和转送登陆Session功能\n
+        AS登陆对话框，提供基本的保存密码和转送登陆Session功能
+
         :param parent: 父窗口，一般填None
         :param DB_Path: 保存密码的数据库路径
         :param callback_TransferSession: 登陆成功后，保存Session的回调函数
